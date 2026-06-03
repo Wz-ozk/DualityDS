@@ -221,7 +221,7 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
 
     showOSD = windowCfg.GetBool("ShowOSD");
 
-    setWindowTitle("melonDS " MELONDS_VERSION);
+    setWindowTitle("DualityDS " MELONDS_VERSION);
     setAttribute(Qt::WA_DeleteOnClose);
     setAcceptDrops(true);
     setFocusPolicy(Qt::ClickFocus);
@@ -565,6 +565,10 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
             actNewWindow = menu->addAction("Open new window");
             connect(actNewWindow, &QAction::triggered, this, &MainWindow::onOpenNewWindow);
 
+            actSecondScreen = menu->addAction("2nd Screen Mode");
+            actSecondScreen->setCheckable(true);
+            connect(actSecondScreen, &QAction::triggered, this, &MainWindow::onToggleSecondScreen);
+
             menu->addSeparator();
 
             actScreenFiltering = menu->addAction("Screen filtering");
@@ -624,15 +628,7 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
             actAudioSync->setCheckable(true);
             connect(actAudioSync, &QAction::triggered, this, &MainWindow::onChangeAudioSync);
         }
-        {
-            QMenu * menu = menubar->addMenu("Help");
-            actAbout = menu->addAction("About...");
-            connect(actAbout, &QAction::triggered, this, [&]
-            {
-                auto dialog = AboutDialog(this);
-                dialog.exec();
-            });
-        }
+        // Help/About menu removed
 
         setMenuBar(menubar);
 
@@ -783,7 +779,19 @@ void MainWindow::closeEvent(QCloseEvent* event)
     if (emuInstance)
     {
         if (windowID == 0)
+        {
+            // If 2nd Screen Mode is active, mark secondary window as disabled
+            // so it doesn't auto-reopen on next launch
+            if (actSecondScreen && actSecondScreen->isChecked())
+            {
+                for (int i = 1; i < kMaxWindows; i++)
+                {
+                    MainWindow* w = emuInstance->getWindow(i);
+                    if (w && w != this) { w->saveEnabled(false); break; }
+                }
+            }
             emuInstance->saveEnabledWindows();
+        }
         else
             saveEnabled(false);
     }
@@ -2095,6 +2103,70 @@ void MainWindow::onChangeIntegerScaling(bool checked)
 void MainWindow::onOpenNewWindow()
 {
     emuInstance->createWindow();
+}
+
+void MainWindow::onToggleSecondScreen()
+{
+    if (actSecondScreen->isChecked())
+    {
+        // Close any stale secondary windows (e.g. auto-reopened from previous session)
+        for (int i = 1; i < kMaxWindows; i++)
+        {
+            MainWindow* w = emuInstance->getWindow(i);
+            if (w && w != this)
+            {
+                disconnect(w, &QObject::destroyed, this, &MainWindow::onSecondScreenClosed);
+                w->close();
+            }
+        }
+
+        // Switch main to bottom-only
+        windowCfg.SetInt("ScreenSizing", screenSizing_BotOnly);
+        actScreenSizing[screenSizing_BotOnly]->setChecked(true);
+        emit screenLayoutChange();
+
+        // Create fresh top-screen window
+        emuInstance->createWindow();
+
+        for (int i = 1; i < kMaxWindows; i++)
+        {
+            MainWindow* w = emuInstance->getWindow(i);
+            if (w && w != this)
+            {
+                w->getWindowConfig().SetInt("ScreenSizing", screenSizing_TopOnly);
+                w->actScreenSizing[screenSizing_TopOnly]->setChecked(true);
+                emit w->screenLayoutChange();
+                w->setWindowTitle("Top Screen");
+                connect(w, &QObject::destroyed, this, &MainWindow::onSecondScreenClosed);
+                break;
+            }
+        }
+    }
+    else
+    {
+        // Close secondary window and restore main to both screens
+        for (int i = 1; i < kMaxWindows; i++)
+        {
+            MainWindow* w = emuInstance->getWindow(i);
+            if (w && w != this)
+            {
+                disconnect(w, &QObject::destroyed, this, &MainWindow::onSecondScreenClosed);
+                w->close();
+            }
+        }
+        windowCfg.SetInt("ScreenSizing", screenSizing_Even);
+        actScreenSizing[screenSizing_Even]->setChecked(true);
+        emit screenLayoutChange();
+    }
+}
+
+void MainWindow::onSecondScreenClosed()
+{
+    // Fired when 2nd window is closed via its own X button
+    windowCfg.SetInt("ScreenSizing", screenSizing_Even);
+    actScreenSizing[screenSizing_Even]->setChecked(true);
+    emit screenLayoutChange();
+    actSecondScreen->setChecked(false);
 }
 
 void MainWindow::onChangeScreenFiltering(bool checked)

@@ -72,6 +72,8 @@ DefaultList<int> DefaultInts =
     {"Instance*.Gdb.ARM9.Port", 3333},
 #endif
     {"LAN.HostNumPlayers", 16},
+    {"Instance*.Controller.L2Button", -1},
+    {"Instance*.Controller.StickCursorSpeed", 5},
 };
 
 RangeList IntRanges =

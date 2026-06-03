@@ -178,6 +178,7 @@ private:
 
     QImage screen[2];
     QTransform screenTrans[kMaxScreenTransforms];
+    QImage blurPrevTiny;
 };
 
 

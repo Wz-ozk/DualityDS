@@ -16,6 +16,7 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
+#include <algorithm>
 #include <QKeyEvent>
 #include <SDL2/SDL.h>
 
@@ -92,6 +93,13 @@ void EmuInstance::inputInit()
     lastHotkeyMask = 0;
 
     isTouching = false;
+    stickCursorActive = false;
+    stickCursorX = 128.0f;
+    stickCursorY = 96.0f;
+    stickCursorSpeed = 2.5f;
+    stickR2Pressed = false;
+    l2MappedButton = -1;
+    for (int i = 0; i < 12; i++) joyMapping2[i] = -1;
     touchX = 0;
     touchY = 0;
 
@@ -112,17 +120,27 @@ void EmuInstance::inputDeInit()
     SDL_UnlockMutex(joyMutex.get());
 }
 
+// Default mappings: keyboard=WASD+JKIUQE, joystick=Xbox layout
+// Order: A, B, Select, Start, Right, Left, Up, Down, R, L, X, Y
+static const int defaultKeyMap[12] = { 75, 74, 16777248, 16777220, 68, 65, 87, 83, 69, 81, 73, 85 };
+static const int defaultJoyMap[12] = { 0, 1, 6, 7, 258, 264, 257, 260, 5, 4, 2, 3 };
+
 void EmuInstance::inputLoadConfig()
 {
     SDL_LockMutex(joyMutex.get());
 
     Config::Table keycfg = localCfg.GetTable("Keyboard");
     Config::Table joycfg = localCfg.GetTable("Joystick");
+    Config::Table joy2cfg = localCfg.GetTable("Joystick2");
 
     for (int i = 0; i < 12; i++)
     {
-        keyMapping[i] = keycfg.GetInt(buttonNames[i]);
-        joyMapping[i] = joycfg.GetInt(buttonNames[i]);
+        int kv = keycfg.GetInt(buttonNames[i]);
+        int jv = joycfg.GetInt(buttonNames[i]);
+        keyMapping[i] = (kv == 0) ? defaultKeyMap[i] : kv;
+        joyMapping[i] = (jv == 0) ? defaultJoyMap[i] : jv;
+        joyMapping2[i] = joy2cfg.GetInt(buttonNames[i]);
+        if (joyMapping2[i] == 0) joyMapping2[i] = -1;
     }
 
     for (int i = 0; i < HK_MAX; i++)
@@ -132,6 +150,12 @@ void EmuInstance::inputLoadConfig()
     }
 
     setJoystick(localCfg.GetInt("JoystickID"));
+
+    Config::Table ctrlcfg = localCfg.GetTable("Controller");
+    l2MappedButton = ctrlcfg.GetInt("L2Button");
+    int speedInt = ctrlcfg.GetInt("StickCursorSpeed");
+    stickCursorSpeed = (speedInt >= 1 && speedInt <= 20) ? speedInt * 0.5f : 2.5f;
+
     SDL_UnlockMutex(joyMutex.get());
 }
 
@@ -439,8 +463,20 @@ void EmuInstance::inputProcess()
     if (joystick)
     {
         for (int i = 0; i < 12; i++)
+        {
             if (joystickButtonDown(joyMapping[i]))
                 joyInputMask &= ~(1 << i);
+            if (joystickButtonDown(joyMapping2[i]))
+                joyInputMask &= ~(1 << i);
+        }
+    }
+
+    // L2/R2 triggers → extra NDS button presses
+    if (joystick && controller)
+    {
+        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 4096
+            && l2MappedButton >= 0 && l2MappedButton < 12)
+            joyInputMask &= ~(1 << l2MappedButton);
     }
 
     inputMask = keyInputMask & joyInputMask;
@@ -457,6 +493,57 @@ void EmuInstance::inputProcess()
     hotkeyPress = hotkeyMask & ~lastHotkeyMask;
     hotkeyRelease = lastHotkeyMask & ~hotkeyMask;
     lastHotkeyMask = hotkeyMask;
+
+    // Right stick → velocity cursor, R2 → NDS touchscreen press
+    if (joystick)
+    {
+        Sint16 rx = 0, ry = 0;
+        bool r2 = false;
+
+        if (controller)
+        {
+            rx = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTX);
+            ry = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTY);
+            r2 = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 4096;
+        }
+        else
+        {
+            Sint16 rx23 = SDL_JoystickGetAxis(joystick, 2);
+            Sint16 ry23 = SDL_JoystickGetAxis(joystick, 3);
+            Sint16 rx45 = SDL_JoystickGetAxis(joystick, 4);
+            Sint16 ry45 = SDL_JoystickGetAxis(joystick, 5);
+            rx = (abs(rx45) > abs(rx23)) ? rx45 : rx23;
+            ry = (abs(ry45) > abs(ry23)) ? ry45 : ry23;
+        }
+
+        const Sint16 deadzone = 4096;
+        float fx = (abs(rx) > deadzone) ? (rx / 32767.0f) : 0.0f;
+        float fy = (abs(ry) > deadzone) ? (ry / 32767.0f) : 0.0f;
+
+        if (fx != 0.0f || fy != 0.0f)
+        {
+            stickCursorX = std::max(0.0f, std::min(255.0f, stickCursorX + fx * stickCursorSpeed));
+            stickCursorY = std::max(0.0f, std::min(191.0f, stickCursorY + fy * stickCursorSpeed));
+            stickCursorActive = true;
+        }
+
+        if (r2 && stickCursorActive)
+        {
+            touchScreen((int)stickCursorX, (int)stickCursorY);
+            stickR2Pressed = true;
+        }
+        else if (stickR2Pressed)
+        {
+            releaseScreen();
+            stickR2Pressed = false;
+        }
+    }
+    else if (stickR2Pressed)
+    {
+        releaseScreen();
+        stickR2Pressed = false;
+    }
+
     SDL_UnlockMutex(joyMutex.get());
 }
 

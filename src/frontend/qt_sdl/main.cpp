@@ -243,7 +243,7 @@ MelonApplication::MelonApplication(int& argc, char** argv)
 #if !defined(Q_OS_APPLE)
     setWindowIcon(QIcon(":/melon-icon"));
     #if defined(Q_OS_UNIX)
-        setDesktopFileName(QString("net.kuribo64.melonDS"));
+        setDesktopFileName(QString("com.weziliey.DualityDS"));
     #endif
 #endif
 }
@@ -327,14 +327,28 @@ int main(int argc, char** argv)
         printf("did you just call me a derp???\n");
 
     MelonApplication melon(argc, argv);
+    melon.setApplicationName("DualityDS");
+    melon.setOrganizationName("Weziliey");
     pathInit();
 
     CLI::CommandLineOptions* options = CLI::ManageArgs(melon);
 
+    // Auto-load Pokemon Platinum if no ROM was specified on command line
+    if (!options->dsRomPath.has_value())
+    {
+        QString romPath = QCoreApplication::applicationDirPath() +
+                          "/Pokemon - Platinum Version (USA) (Rev 1).nds";
+        if (QFileInfo(romPath).exists())
+        {
+            options->dsRomPath = QFileInfo(romPath).absoluteFilePath();
+            options->boot = true;
+        }
+    }
+
     // http://stackoverflow.com/questions/14543333/joystick-wont-work-using-sdl
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
 
-    SDL_SetHint(SDL_HINT_APP_NAME, "melonDS");
+    SDL_SetHint(SDL_HINT_APP_NAME, "DualityDS");
 
     if (SDL_Init(SDL_INIT_HAPTIC) < 0)
     {

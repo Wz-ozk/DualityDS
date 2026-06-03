@@ -66,7 +66,7 @@ protected:
 
         if (!mod)
         {
-            if (key == Qt::Key_Escape) { click(); return; }
+            if (key == Qt::Key_Escape) { *mapping = -1; click(); return; }
             if (key == Qt::Key_Backspace) { *mapping = -1; click(); return; }
         }
 
@@ -204,7 +204,7 @@ protected:
 
         if (!mod)
         {
-            if (key == Qt::Key_Escape) { click(); return; }
+            if (key == Qt::Key_Escape) { *mapping = -1; click(); return; }
             if (key == Qt::Key_Backspace) { *mapping = -1; click(); return; }
         }
     }

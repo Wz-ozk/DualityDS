@@ -168,6 +168,8 @@ private slots:
     void onChangeScreenAspect(QAction* act);
     void onChangeIntegerScaling(bool checked);
     void onOpenNewWindow();
+    void onToggleSecondScreen();
+    void onSecondScreenClosed();
     void onChangeScreenFiltering(bool checked);
     void onChangeShowOSD(bool checked);
     void onChangeLimitFramerate(bool checked);
@@ -290,12 +292,13 @@ public:
     QActionGroup* grpScreenAspectBot;
     QAction** actScreenAspectBot;
     QAction* actNewWindow;
+    QAction* actSecondScreen;
+    int savedScreenSizing = 0;
     QAction* actScreenFiltering;
     QAction* actShowOSD;
     QAction* actLimitFramerate;
     QAction* actAudioSync;
 
-    QAction* actAbout;
 };
 
 #endif // WINDOW_H

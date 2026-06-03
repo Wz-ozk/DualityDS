@@ -14,14 +14,14 @@ FILETYPE VFT_APP
 	{
 		BLOCK "040904E4"
 		{
-			VALUE "CompanyName", "Melon Factory of Kuribo64"
+			VALUE "CompanyName", "Weziliey"
 			VALUE "FileVersion", "${melonDS_VERSION}"
-			VALUE "FileDescription", "melonDS emulator"
-			VALUE "InternalName", "SDnolem"
-			VALUE "LegalCopyright", "2016-2025 melonDS team"
+			VALUE "FileDescription", "DualityDS NDS Emulator"
+			VALUE "InternalName", "DualityDS"
+			VALUE "LegalCopyright", ""
 			VALUE "LegalTrademarks", ""
-			VALUE "OriginalFilename", "melonDS.exe"
-			VALUE "ProductName", "melonDS"
+			VALUE "OriginalFilename", "DualityDS.exe"
+			VALUE "ProductName", "DualityDS"
 			VALUE "ProductVersion", "${melonDS_VERSION}"
 		}
 	}

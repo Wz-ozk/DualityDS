@@ -354,6 +354,7 @@ private:
 
     int keyMapping[12];
     int joyMapping[12];
+    int joyMapping2[12];
     int hkKeyMapping[HK_MAX];
     int hkJoyMapping[HK_MAX];
 
@@ -376,10 +377,17 @@ private:
     melonDS::u32 inputMask;
 
     bool isTouching;
+    bool stickCursorActive;
+    float stickCursorX;
+    float stickCursorY;
+    float stickCursorSpeed;
+    bool stickR2Pressed;
+    int l2MappedButton;
     melonDS::u16 touchX, touchY;
 
     friend class EmuThread;
     friend class MainWindow;
+    friend class ScreenPanelNative;
 };
 
 #endif //EMUINSTANCE_H

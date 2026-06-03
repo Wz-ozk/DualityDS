@@ -47,12 +47,15 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
     Config::Table& instcfg = emuInstance->getLocalConfig();
     Config::Table keycfg = instcfg.GetTable("Keyboard");
     Config::Table joycfg = instcfg.GetTable("Joystick");
+    Config::Table joy2cfg = instcfg.GetTable("Joystick2");
 
     for (int i = 0; i < keypad_num; i++)
     {
         const char* btn = EmuInstance::buttonNames[dskeyorder[i]];
         keypadKeyMap[i] = keycfg.GetInt(btn);
         keypadJoyMap[i] = joycfg.GetInt(btn);
+        keypadJoyMap2[i] = joy2cfg.GetInt(btn);
+        if (keypadJoyMap2[i] == 0) keypadJoyMap2[i] = -1;
     }
 
     int i = 0;
@@ -96,6 +99,31 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
 
     setupKeypadPage();
 
+    // Populate L2/R2 trigger mapping dropdowns
+    static const int kTriggerMap[13] = {-1, 0, 1, 10, 11, 9, 8, 3, 2, 6, 7, 5, 4};
+    static const char* kTriggerLabels[13] = {"(none)", "A", "B", "X", "Y", "L", "R", "Start", "Select", "Up", "Down", "Left", "Right"};
+    for (int i = 0; i < 13; i++)
+    {
+        ui->cbxL2Mapping->addItem(kTriggerLabels[i]);
+    }
+
+    {
+        Config::Table& icfg = emuInstance->getLocalConfig();
+        Config::Table ctrlcfg = icfg.GetTable("Controller");
+        int l2 = ctrlcfg.GetInt("L2Button");
+        auto findIdx = [](int ndsBtn) -> int {
+            static const int m[13] = {-1, 0, 1, 10, 11, 9, 8, 3, 2, 6, 7, 5, 4};
+            for (int i = 0; i < 13; i++) if (m[i] == ndsBtn) return i;
+            return 0;
+        };
+        ui->cbxL2Mapping->setCurrentIndex(findIdx(l2));
+
+        int speedInt = ctrlcfg.GetInt("StickCursorSpeed");
+        if (speedInt < 1 || speedInt > 20) speedInt = 5;
+        ui->sliderCursorSpeed->setValue(speedInt);
+        ui->lblCursorSpeedVal->setText(QString("%1×").arg(speedInt * 0.5, 0, 'f', 1));
+    }
+
     int inst = emuInstance->getInstanceID();
     if (inst > 0)
         ui->lblInstanceNum->setText(QString("Configuring mappings for instance %1").arg(inst+1));
@@ -120,6 +148,9 @@ void InputConfigDialog::setupKeypadPage()
 
         pushButtonKey->parentWidget()->layout()->replaceWidget(pushButtonKey, keyMapButtonKey);
         pushButtonJoy->parentWidget()->layout()->replaceWidget(pushButtonJoy, keyMapButtonJoy);
+
+        JoyMapButton* keyMapButtonJoy2 = new JoyMapButton(&keypadJoyMap2[i], false);
+        keyMapButtonJoy->parentWidget()->layout()->addWidget(keyMapButtonJoy2);
 
         delete pushButtonKey;
         delete pushButtonJoy;
@@ -187,12 +218,14 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
     Config::Table& instcfg = emuInstance->getLocalConfig();
     Config::Table keycfg = instcfg.GetTable("Keyboard");
     Config::Table joycfg = instcfg.GetTable("Joystick");
+    Config::Table joy2cfg = instcfg.GetTable("Joystick2");
 
     for (int i = 0; i < keypad_num; i++)
     {
         const char* btn = EmuInstance::buttonNames[dskeyorder[i]];
         keycfg.SetInt(btn, keypadKeyMap[i]);
         joycfg.SetInt(btn, keypadJoyMap[i]);
+        joy2cfg.SetInt(btn, keypadJoyMap2[i]);
     }
 
     int i = 0;
@@ -214,6 +247,13 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
     }
 
     instcfg.SetInt("JoystickID", joystickID);
+
+    // Save L2/R2 trigger mappings and cursor speed
+    static const int kTriggerMap[13] = {-1, 0, 1, 10, 11, 9, 8, 3, 2, 6, 7, 5, 4};
+    Config::Table ctrlcfg = instcfg.GetTable("Controller");
+    ctrlcfg.SetInt("L2Button", kTriggerMap[ui->cbxL2Mapping->currentIndex()]);
+    ctrlcfg.SetInt("StickCursorSpeed", ui->sliderCursorSpeed->value());
+
     Config::Save();
 
     emuInstance->inputLoadConfig();
@@ -237,6 +277,11 @@ void InputConfigDialog::on_btnKeyMapSwitch_clicked()
 void InputConfigDialog::on_btnJoyMapSwitch_clicked()
 {
     ui->stackMapping->setCurrentIndex(1);
+}
+
+void InputConfigDialog::on_sliderCursorSpeed_valueChanged(int val)
+{
+    ui->lblCursorSpeedVal->setText(QString("%1×").arg(val * 0.5, 0, 'f', 1));
 }
 
 void InputConfigDialog::on_cbxJoystick_currentIndexChanged(int id)

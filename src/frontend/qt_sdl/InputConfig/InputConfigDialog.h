@@ -134,6 +134,7 @@ private slots:
     void on_btnKeyMapSwitch_clicked();
     void on_btnJoyMapSwitch_clicked();
     void on_cbxJoystick_currentIndexChanged(int id);
+    void on_sliderCursorSpeed_valueChanged(int val);
 
 private:
     void populatePage(QWidget* page,
@@ -145,7 +146,7 @@ private:
 
     EmuInstance* emuInstance;
 
-    int keypadKeyMap[12], keypadJoyMap[12];
+    int keypadKeyMap[12], keypadJoyMap[12], keypadJoyMap2[12];
     int addonsKeyMap[hk_addons.size()], addonsJoyMap[hk_addons.size()];
     int hkGeneralKeyMap[hk_general.size()], hkGeneralJoyMap[hk_general.size()];
     int joystickID;

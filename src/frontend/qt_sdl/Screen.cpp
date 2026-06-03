@@ -795,15 +795,139 @@ void ScreenPanelNative::drawScreen()
     bufferLock.unlock();
 }
 
+static void applyColorAdjust(QImage& img, float brightness, float saturation)
+{
+    int w = img.width(), h = img.height();
+    for (int y = 0; y < h; y++)
+    {
+        QRgb* row = reinterpret_cast<QRgb*>(img.scanLine(y));
+        for (int x = 0; x < w; x++)
+        {
+            float r = (float)qRed(row[x]);
+            float g = (float)qGreen(row[x]);
+            float b = (float)qBlue(row[x]);
+            float luma = 0.299f*r + 0.587f*g + 0.114f*b;
+            r = luma + saturation * (r - luma);
+            g = luma + saturation * (g - luma);
+            b = luma + saturation * (b - luma);
+            r *= brightness; g *= brightness; b *= brightness;
+            auto cl = [](float v) -> int { return v < 0.0f ? 0 : (v > 255.0f ? 255 : (int)v); };
+            row[x] = qRgb(cl(r), cl(g), cl(b));
+        }
+    }
+}
+
+// Temporal blend: cur = prev*(1-alpha) + cur*alpha — operates in-place on cur
+static void blendTiny(const QImage& prev, QImage& cur, float alpha)
+{
+    int w = cur.width(), h = cur.height();
+    float keep = 1.0f - alpha;
+    for (int y = 0; y < h; y++)
+    {
+        const QRgb* pRow = reinterpret_cast<const QRgb*>(prev.constScanLine(y));
+        QRgb*       cRow = reinterpret_cast<QRgb*>(cur.scanLine(y));
+        for (int x = 0; x < w; x++)
+        {
+            int r = (int)(qRed(pRow[x])   * keep + qRed(cRow[x])   * alpha);
+            int g = (int)(qGreen(pRow[x]) * keep + qGreen(cRow[x]) * alpha);
+            int b = (int)(qBlue(pRow[x])  * keep + qBlue(cRow[x])  * alpha);
+            cRow[x] = qRgb(r, g, b);
+        }
+    }
+}
+
+// Returns tiny blurred image — caller draws it scaled via QPainter (avoids large CPU alloc)
+static QImage blurBackground(const QImage& top, const QImage& bot,
+    int numScreens, const int* screenKind, QImage& prevTiny)
+{
+    QImage tiny;
+
+    if (numScreens == 1)
+    {
+        // Single-screen: sample left 15% + right 15% edge strips only
+        const QImage& src = (screenKind[0] == 0) ? top : bot;
+        const int edge = 51; // 256 * 0.20
+        const int TW = 38, TH = 19;
+        tiny = QImage(TW, TH, QImage::Format_RGB32);
+        for (int y = 0; y < TH; y++)
+        {
+            QRgb* out = reinterpret_cast<QRgb*>(tiny.scanLine(y));
+            int sy = y * 192 / TH;
+            const QRgb* row = reinterpret_cast<const QRgb*>(src.scanLine(sy));
+            for (int x = 0; x < TW / 2; x++)
+                out[x] = row[x * edge / (TW / 2)];
+            for (int x = 0; x < TW / 2; x++)
+                out[TW / 2 + x] = row[(256 - edge) + x * edge / (TW / 2)];
+        }
+    }
+    else
+    {
+        // Both screens: combine 256x384 then scale down
+        QImage combined(256, 384, QImage::Format_RGB32);
+        for (int y = 0; y < 192; y++)
+            memcpy(combined.scanLine(y),       top.scanLine(y), 256 * 4);
+        for (int y = 0; y < 192; y++)
+            memcpy(combined.scanLine(192 + y), bot.scanLine(y), 256 * 4);
+        tiny = combined.scaled(38, 57, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    }
+
+    // Temporal smoothing: blend 15% new frame into 85% previous — kills per-frame flicker
+    if (!prevTiny.isNull() && prevTiny.size() == tiny.size())
+        blendTiny(prevTiny, tiny, 0.15f);
+    prevTiny = tiny;
+
+    int TW = tiny.width(), TH = tiny.height();
+    const int r = 3;
+
+    // Horizontal pass
+    QImage hpass(TW, TH, QImage::Format_RGB32);
+    for (int y = 0; y < TH; y++)
+    {
+        const QRgb* in  = reinterpret_cast<const QRgb*>(tiny.scanLine(y));
+        QRgb*       out = reinterpret_cast<QRgb*>(hpass.scanLine(y));
+        for (int x = 0; x < TW; x++)
+        {
+            int rr=0,gg=0,bb=0,n=0;
+            for (int k = -r; k <= r; k++)
+            {
+                int xi = x+k < 0 ? 0 : (x+k >= TW ? TW-1 : x+k);
+                QRgb c = in[xi];
+                rr += qRed(c); gg += qGreen(c); bb += qBlue(c); n++;
+            }
+            out[x] = qRgb(rr/n, gg/n, bb/n);
+        }
+    }
+
+    // Vertical pass
+    QImage blurred(TW, TH, QImage::Format_RGB32);
+    for (int x = 0; x < TW; x++)
+    {
+        for (int y = 0; y < TH; y++)
+        {
+            int rr=0,gg=0,bb=0,n=0;
+            for (int k = -r; k <= r; k++)
+            {
+                int yi = y+k < 0 ? 0 : (y+k >= TH ? TH-1 : y+k);
+                QRgb c = reinterpret_cast<const QRgb*>(hpass.scanLine(yi))[x];
+                rr += qRed(c); gg += qGreen(c); bb += qBlue(c); n++;
+            }
+            reinterpret_cast<QRgb*>(blurred.scanLine(y))[x] = qRgb(rr/n, gg/n, bb/n);
+        }
+    }
+
+    applyColorAdjust(blurred, 0.73f, 1.2f);
+
+    // Scale tiny → 512×512: cheap (~262k pixels vs 2.6M), painter then does only ~4× upscale
+    // which bilinear handles cleanly — no banding (56× bilinear from raw tiny looked blocky)
+    return blurred.scaled(512, 512, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+}
+
 void ScreenPanelNative::paintEvent(QPaintEvent* event)
 {
     QPainter painter(this);
 
-    // fill background
-    painter.fillRect(event->rect(), QColor::fromRgb(0, 0, 0));
-
     auto emuThread = emuInstance->getEmuThread();
-    
+
     if (emuThread->emuIsActive())
     {
         emuInstance->renderLock.lock();
@@ -815,6 +939,32 @@ void ScreenPanelNative::paintEvent(QPaintEvent* event)
             memcpy(screen[1].scanLine(0), bottomBuffer, 256 * 192 * 4);
         }
         bufferLock.unlock();
+        emuInstance->renderLock.unlock(); // release early — screen[] are local copies, blur/draw needs no lock
+
+        // Draw blurred game frame as background — only when letterboxing present (AR mismatch > 2%)
+        {
+            QSize minSz = screenGetMinSize(1);
+            float gameAR = (float)minSz.width() / (float)minSz.height();
+            float winAR  = (float)width() / (float)height();
+            if (std::abs(winAR / gameAR - 1.0f) > 0.02f)
+            {
+                QImage bg = blurBackground(screen[0], screen[1], numScreens, screenKind, blurPrevTiny);
+                painter.resetTransform();
+                painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+                int bw = (int)(width()  * 1.12f);
+                int bh = (int)(height() * 1.12f);
+                int ox = -(int)(width()  * 0.06f);
+                int oy = -(int)(height() * 0.06f);
+                painter.drawImage(QRect(ox, oy, bw, bh), bg);
+                painter.setRenderHint(QPainter::SmoothPixmapTransform, false); // restore crisp game screen
+            }
+            else
+            {
+                blurPrevTiny = QImage(); // reset so next letterbox start has no stale frame
+                painter.resetTransform();
+                painter.fillRect(rect(), Qt::black);
+            }
+        }
 
         QRect screenrc(0, 0, 256, 192);
 
@@ -823,7 +973,31 @@ void ScreenPanelNative::paintEvent(QPaintEvent* event)
             painter.setTransform(screenTrans[i]);
             painter.drawImage(screenrc, screen[screenKind[i]]);
         }
-        emuInstance->renderLock.unlock();
+        // Draw right-stick velocity cursor on bottom screen
+        if (emuInstance->stickCursorActive)
+        {
+            for (int i = 0; i < numScreens; i++)
+            {
+                if (screenKind[i] == 1)
+                {
+                    QPointF pt = screenTrans[i].map(
+                        QPointF(emuInstance->stickCursorX, emuInstance->stickCursorY));
+                    painter.resetTransform();
+                    painter.setPen(Qt::NoPen);
+                    // Filled white dot when pressing, outline-only when hovering
+                    if (emuInstance->stickR2Pressed)
+                        painter.setBrush(QColor(255, 255, 255, 220));
+                    else
+                        painter.setBrush(QColor(255, 255, 255, 120));
+                    painter.drawEllipse(pt, 5, 5);
+                    break;
+                }
+            }
+        }
+    }
+    else
+    {
+        painter.fillRect(event->rect(), QColor::fromRgb(0, 0, 0));
     }
 
     osdUpdate();
