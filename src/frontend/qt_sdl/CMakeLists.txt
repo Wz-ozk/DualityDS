@@ -21,6 +21,11 @@ set(SOURCES_QT_SDL
     InputConfig/InputConfigDialog.cpp
     InputConfig/MapButton.h
     InputConfig/resources/ds.qrc
+    GameLibrary/GameMetadata.cpp
+    GameLibrary/RomScanner.cpp
+    GameLibrary/CoverFetcher.cpp
+    GameLibrary/GameLibraryModel.cpp
+    GameLibrary/GameLibraryWidget.cpp
     VideoSettingsDialog.cpp
     CameraSettingsDialog.cpp
     AudioSettingsDialog.cpp

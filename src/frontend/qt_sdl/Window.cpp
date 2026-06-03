@@ -41,8 +41,10 @@
 #include <QVector>
 #include <QCommandLineParser>
 #include <QDesktopServices>
+#include <QStackedWidget>
 
 #include "main.h"
+#include "GameLibrary/GameLibraryWidget.h"
 #include "CheatsDialog.h"
 #include "DateTimeDialog.h"
 #include "EmuSettingsDialog.h"
@@ -245,6 +247,15 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
             actOpenROM = menu->addAction("Open ROM...");
             connect(actOpenROM, &QAction::triggered, this, &MainWindow::onOpenFile);
             actOpenROM->setShortcut(QKeySequence(QKeySequence::StandardKey::Open));
+
+            actGameLibrary = menu->addAction("Game Library");
+            connect(actGameLibrary, &QAction::triggered, this, &MainWindow::onShowGameLibrary);
+
+            QAction* actAddROMFolder = menu->addAction("Add ROM Folder...");
+            connect(actAddROMFolder, &QAction::triggered, this, [this]() {
+                showLibrary();
+                if (libraryWidget) libraryWidget->onAddFolder();
+            });
 
             /*actOpenROMArchive = menu->addAction("Open ROM inside archive...");
             connect(actOpenROMArchive, &QAction::triggered, this, &MainWindow::onOpenFileArchive);
@@ -656,6 +667,7 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
     show();
 
     panel = nullptr;
+    initGameLibrary();
     createScreenPanel();
 
     if (hasMenu)
@@ -860,7 +872,11 @@ void MainWindow::createScreenPanel()
         panel = panelNative;
         panel->show();
     }
-    setCentralWidget(panel);
+    // panel lives inside centralStack (index for the emulator screen); the game
+    // library shares the same stack so we can swap without destroying the panel.
+    centralStack->insertWidget(0, panel);
+    if (!showingLibrary)
+        centralStack->setCurrentWidget(panel);
 
     if (hasMenu)
         actScreenFiltering->setEnabled(hasOGL);
@@ -870,6 +886,91 @@ void MainWindow::createScreenPanel()
 
     connect(this, SIGNAL(screenLayoutChange()), panel, SLOT(onScreenLayoutChanged()));
     emit screenLayoutChange();
+}
+
+void MainWindow::initGameLibrary()
+{
+    showingLibrary = false;
+
+    centralStack = new QStackedWidget(this);
+    setCentralWidget(centralStack);
+
+    libraryWidget = new GameLibraryWidget(this);
+    connect(libraryWidget, &GameLibraryWidget::gameActivated,
+            this, &MainWindow::onLibraryGameActivated);
+    connect(libraryWidget, &GameLibraryWidget::foldersChanged,
+            this, &MainWindow::onLibraryFoldersChanged);
+    centralStack->addWidget(libraryWidget);
+
+    libraryWidget->setFolders(loadLibraryFolders());
+}
+
+QStringList MainWindow::loadLibraryFolders()
+{
+    QStringList out;
+    Config::Array arr = globalCfg.GetArray("LibraryFolders");
+    int n = (int)arr.Size();
+    for (int i = 0; i < n; i++)
+    {
+        std::string s = arr.GetString(i);
+        if (!s.empty())
+            out.append(QString::fromStdString(s));
+    }
+    return out;
+}
+
+void MainWindow::onLibraryFoldersChanged(const QStringList& folders)
+{
+    Config::Array arr = globalCfg.GetArray("LibraryFolders");
+    arr.Clear();
+    for (int i = 0; i < folders.size(); i++)
+        arr.SetQString(i, folders.at(i));
+    Config::Save();
+}
+
+void MainWindow::showLibrary()
+{
+    if (!centralStack || !libraryWidget) return;
+    centralStack->setCurrentWidget(libraryWidget);
+    showingLibrary = true;
+}
+
+void MainWindow::showEmulator()
+{
+    if (!centralStack || !panel) return;
+    centralStack->setCurrentWidget(panel);
+    showingLibrary = false;
+}
+
+void MainWindow::onShowGameLibrary()
+{
+    showLibrary();
+}
+
+void MainWindow::onLibraryGameActivated(const QString& romPath)
+{
+    if (!verifySetup())
+        return;
+
+    const QStringList file = splitArchivePath(romPath, false);
+    if (file.isEmpty())
+        return;
+
+    QString errorstr;
+    if (!emuThread->bootROM(file, errorstr))
+    {
+        QMessageBox::critical(this, "DualityDS", errorstr);
+        return;
+    }
+
+    const QString barredFilename = file.join('|');
+    recentFileList.removeAll(barredFilename);
+    recentFileList.prepend(barredFilename);
+    updateRecentFilesMenu();
+
+    updateCartInserted(false);
+
+    showEmulator();
 }
 
 GL::Context* MainWindow::getOGLContext()
@@ -1675,6 +1776,9 @@ void MainWindow::onStop()
     if (!emuThread->emuIsActive()) return;
 
     emuThread->emuStop(true);
+
+    // Return to the game library so another game can be picked.
+    showLibrary();
 }
 
 void MainWindow::onFrameStep()

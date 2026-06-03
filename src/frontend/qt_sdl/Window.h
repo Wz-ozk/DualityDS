@@ -40,6 +40,8 @@
 
 class EmuInstance;
 class EmuThread;
+class QStackedWidget;
+class GameLibraryWidget;
 
 const int kMaxRecentROMs = 10;
 
@@ -56,6 +58,8 @@ public:
     int getWindowID() { return windowID; }
 
     bool winHasMenu() { return hasMenu; }
+
+    void showLibrary();
 
     void saveEnabled(bool enabled);
 
@@ -105,6 +109,9 @@ private slots:
     void onOpenFile();
     void onClickRecentFile();
     void onClearRecentFiles();
+    void onShowGameLibrary();
+    void onLibraryGameActivated(const QString& romPath);
+    void onLibraryFoldersChanged(const QStringList& folders);
     void onBootFirmware();
     void onInsertCart();
     void onEjectCart();
@@ -203,6 +210,14 @@ private:
 
     void createScreenPanel();
 
+    // Game library (Wii-style ROM picker) — see GameLibrary/
+    QStackedWidget* centralStack;
+    GameLibraryWidget* libraryWidget;
+    bool showingLibrary;
+    void initGameLibrary();
+    void showEmulator();
+    QStringList loadLibraryFolders();
+
     bool lanWarning(bool host);
 
     bool showOSD;
@@ -230,6 +245,7 @@ public:
     bool hasMenu;
 
     QAction* actOpenROM;
+    QAction* actGameLibrary;
     QAction* actBootFirmware;
     QAction* actCurrentCart;
     QAction* actInsertCart;

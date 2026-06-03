@@ -333,17 +333,9 @@ int main(int argc, char** argv)
 
     CLI::CommandLineOptions* options = CLI::ManageArgs(melon);
 
-    // Auto-load Pokemon Platinum if no ROM was specified on command line
-    if (!options->dsRomPath.has_value())
-    {
-        QString romPath = QCoreApplication::applicationDirPath() +
-                          "/Pokemon - Platinum Version (USA) (Rev 1).nds";
-        if (QFileInfo(romPath).exists())
-        {
-            options->dsRomPath = QFileInfo(romPath).absoluteFilePath();
-            options->boot = true;
-        }
-    }
+    // No ROM on the command line: fall through to the game library picker
+    // (handled after the window is created). The old hardcoded Platinum
+    // auto-boot was removed in favour of the library.
 
     // http://stackoverflow.com/questions/14543333/joystick-wont-work-using-sdl
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
@@ -433,6 +425,11 @@ int main(int argc, char** argv)
         if (memberSyntaxUsed) printf("Warning: use the a.zip|b.nds format at your own risk!\n");
 
         win->preloadROMs(dsfile, gbafile, options->boot);
+
+        // No ROM on the command line → open the game library picker instead of
+        // a blank screen.
+        if (dsfile.isEmpty() && !options->boot)
+            win->showLibrary();
 
         if (options->fullscreen)
             win->toggleFullscreen();
