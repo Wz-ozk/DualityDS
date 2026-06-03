@@ -25,6 +25,8 @@
 class QListView;
 class QThread;
 class QLabel;
+class QLineEdit;
+class QSortFilterProxyModel;
 class GameLibraryModel;
 class RomScanner;
 class CoverFetcher;
@@ -56,12 +58,19 @@ private slots:
     void onEntryFound(const GameEntry& entry);
     void onScanFinished(int count);
 
+protected:
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
+
 private:
     void startScan();
     void updateEmptyState(int count);
+    void addFolders(const QStringList& newFolders); // dedupe, persist, rescan
 
     QListView* view;
     GameLibraryModel* model;
+    QSortFilterProxyModel* proxy;
+    QLineEdit* searchBox;
     QLabel* statusLabel;
 
     RomScanner* scanner;

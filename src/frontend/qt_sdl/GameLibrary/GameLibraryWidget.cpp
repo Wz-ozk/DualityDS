@@ -33,6 +33,14 @@
 #include <QDialog>
 #include <QListWidget>
 #include <QDialogButtonBox>
+#include <QLineEdit>
+#include <QSortFilterProxyModel>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QFileInfo>
+#include <QDir>
+#include <QUrl>
 
 GameLibraryWidget::GameLibraryWidget(QWidget* parent)
     : QWidget(parent)
@@ -41,8 +49,17 @@ GameLibraryWidget::GameLibraryWidget(QWidget* parent)
 
     model = new GameLibraryModel(this);
 
+    // Proxy gives alphabetical sort + live title search over the source model.
+    proxy = new QSortFilterProxyModel(this);
+    proxy->setSourceModel(model);
+    proxy->setDynamicSortFilter(true);
+    proxy->setSortCaseSensitivity(Qt::CaseInsensitive);
+    proxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
+    proxy->setFilterRole(Qt::DisplayRole);
+    proxy->sort(0);
+
     view = new QListView(this);
-    view->setModel(model);
+    view->setModel(proxy);
     view->setViewMode(QListView::IconMode);
     view->setIconSize(QSize(128, 128));
     view->setGridSize(QSize(160, 184));
@@ -66,16 +83,27 @@ GameLibraryWidget::GameLibraryWidget(QWidget* parent)
     connect(manageBtn, &QPushButton::clicked, this, &GameLibraryWidget::onManageFolders);
     connect(rescanBtn, &QPushButton::clicked, this, &GameLibraryWidget::onRescan);
 
+    searchBox = new QLineEdit(this);
+    searchBox->setPlaceholderText(tr("Search…"));
+    searchBox->setClearButtonEnabled(true);
+    searchBox->setMaximumWidth(240);
+    connect(searchBox, &QLineEdit::textChanged, this, [this](const QString& text) {
+        proxy->setFilterFixedString(text);
+    });
+
     auto* toolbar = new QHBoxLayout();
     toolbar->addWidget(addBtn);
     toolbar->addWidget(manageBtn);
     toolbar->addWidget(rescanBtn);
+    toolbar->addWidget(searchBox);
     toolbar->addStretch(1);
     toolbar->addWidget(statusLabel);
 
     auto* layout = new QVBoxLayout(this);
     layout->addLayout(toolbar);
     layout->addWidget(view, 1);
+
+    setAcceptDrops(true); // drop ROM folders or .nds files to add them
 
     // Worker thread for scanning so the UI never blocks on disk I/O.
     scanThread = new QThread(this);
@@ -112,9 +140,20 @@ void GameLibraryWidget::onAddFolder()
 {
     QString dir = QFileDialog::getExistingDirectory(this, tr("Select ROM Folder"));
     if (dir.isEmpty()) return;
-    if (scanFolders.contains(dir)) return;
+    addFolders({dir});
+}
 
-    scanFolders.append(dir);
+void GameLibraryWidget::addFolders(const QStringList& newFolders)
+{
+    bool changed = false;
+    for (const QString& f : newFolders)
+    {
+        if (f.isEmpty() || scanFolders.contains(f)) continue;
+        scanFolders.append(f);
+        changed = true;
+    }
+    if (!changed) return;
+
     emit foldersChanged(scanFolders);
     startScan();
 }
@@ -208,7 +247,38 @@ void GameLibraryWidget::updateEmptyState(int count)
 
 void GameLibraryWidget::onItemActivated(const QModelIndex& index)
 {
-    QString path = model->romPathAt(index);
+    // `index` belongs to the proxy; data() forwards to the source model.
+    QString path = index.data(GameLibraryModel::RomPathRole).toString();
     if (!path.isEmpty())
         emit gameActivated(path);
+}
+
+void GameLibraryWidget::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (event->mimeData()->hasUrls())
+        event->acceptProposedAction();
+}
+
+void GameLibraryWidget::dropEvent(QDropEvent* event)
+{
+    static const QStringList romExts = {"nds", "dsi", "srl", "ids"};
+
+    QStringList toAdd;
+    for (const QUrl& url : event->mimeData()->urls())
+    {
+        QString local = url.toLocalFile();
+        if (local.isEmpty()) continue;
+
+        QFileInfo fi(local);
+        if (fi.isDir())
+            toAdd.append(fi.absoluteFilePath());
+        else if (romExts.contains(fi.suffix().toLower()))
+            toAdd.append(fi.absolutePath()); // add the ROM's containing folder
+    }
+
+    if (!toAdd.isEmpty())
+    {
+        addFolders(toAdd);
+        event->acceptProposedAction();
+    }
 }
