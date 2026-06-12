@@ -25,6 +25,7 @@ set(SOURCES_QT_SDL
     GameLibrary/RomScanner.cpp
     GameLibrary/CoverFetcher.cpp
     GameLibrary/GameLibraryModel.cpp
+    GameLibrary/CoverCarousel.cpp
     GameLibrary/GameLibraryWidget.cpp
     VideoSettingsDialog.cpp
     CameraSettingsDialog.cpp

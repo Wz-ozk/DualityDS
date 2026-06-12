@@ -51,6 +51,7 @@
 
 #include "main.h"
 #include "version.h"
+#include "DualityTheme.h"
 
 #include "Config.h"
 
@@ -389,6 +390,9 @@ int main(int argc, char** argv)
             QApplication::setStyle(uitheme);
         }
     }
+
+    // DualityDS console faceplate theme over the whole app (menus, dialogs, etc.).
+    qApp->setStyleSheet(DUALITY_THEME_QSS);
 
     // fix for Wayland OpenGL glitches
     QGuiApplication::setAttribute(Qt::AA_NativeWindows, false);

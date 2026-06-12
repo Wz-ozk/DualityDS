@@ -37,13 +37,84 @@ CoverFetcher::CoverFetcher(const QString& cacheDir, QObject* parent)
 
 QString CoverFetcher::cachePath(const QString& gameCode) const
 {
-    return cacheDir + "/" + gameCode + ".png";
+    // "_hq" suffix so any old low-res coverS cache is ignored and refetched.
+    return cacheDir + "/" + gameCode + "_hq.png";
 }
 
-// GameTDB stores art under language/region folders. Pick likely folders from
-// the 4th game-code character (region), always falling back to EN/US.
-QStringList CoverFetcher::buildUrls(const QString& gameCode)
+namespace
 {
+// libretro thumbnail filenames replace these characters with '_'.
+QString sanitizeLibretro(QString s)
+{
+    static const QString bad = "&*/:`<>?\\|";
+    for (QChar& c : s)
+        if (bad.contains(c)) c = QChar('_');
+    return s.trimmed();
+}
+
+// Strip diacritics so a banner title like "Pokémon" can match No-Intro "Pokemon".
+QString foldAccents(const QString& s)
+{
+    QString d = s.normalized(QString::NormalizationForm_KD);
+    QString out;
+    out.reserve(d.size());
+    for (QChar c : d)
+        if (c.category() != QChar::Mark_NonSpacing)
+            out.append(c);
+    return out;
+}
+
+// No-Intro region suffix from the game-code region character.
+QString regionSuffix(const QString& gameCode)
+{
+    QChar r = gameCode.size() >= 4 ? gameCode.at(3) : QChar('E');
+    switch (r.toLatin1())
+    {
+    case 'E': case 'T': return "(USA)";
+    case 'J':           return "(Japan)";
+    case 'K':           return "(Korea)";
+    case 'C':           return "(China)";
+    case 'P': case 'X': case 'Y': case 'Z': case 'D':
+    case 'F': case 'S': case 'I': case 'H': return "(Europe)";
+    default:            return QString();
+    }
+}
+
+QString libretroUrl(const QString& name)
+{
+    QUrl u;
+    u.setScheme("https");
+    u.setHost("thumbnails.libretro.com");
+    u.setPath("/Nintendo - Nintendo DS/Named_Boxarts/" + name + ".png");
+    return u.toString(QUrl::FullyEncoded);
+}
+} // namespace
+
+// Builds the ordered list of cover URLs to try: higher-quality libretro boxart
+// first (keyed by game name), then GameTDB art (keyed by game code).
+QStringList CoverFetcher::buildUrls(const QString& gameCode,
+                                    const QString& romName, const QString& title)
+{
+    QStringList urls;
+
+    // --- libretro Named_Boxarts (highest quality), keyed by the game name ---
+    QStringList names;
+    auto pushName = [&](const QString& n) {
+        QString s = sanitizeLibretro(n);
+        if (!s.isEmpty() && !names.contains(s)) names.append(s);
+    };
+    pushName(romName);                       // ROM basename, often No-Intro named
+    const QString folded = foldAccents(title).trimmed();
+    const QString suffix = regionSuffix(gameCode);
+    if (!folded.isEmpty() && !suffix.isEmpty())
+        pushName(folded + " " + suffix);     // "Title (Region)"
+    pushName(folded);                        // bare title, last resort
+    for (const QString& n : names)
+        urls.append(libretroUrl(n));
+
+    // --- GameTDB fallback ---
+    // Pick likely regions from the 4th game-code character, and prefer the high-res
+    // art sets (coverHQ > cover > coverS). Always fall back to EN/US.
     QChar region = gameCode.size() >= 4 ? gameCode.at(3) : QChar('E');
 
     QStringList folders;
@@ -62,13 +133,17 @@ QStringList CoverFetcher::buildUrls(const QString& gameCode)
     for (const QString& f : {QString("EN"), QString("US"), QString("JA")})
         if (!folders.contains(f)) folders.append(f);
 
-    QStringList urls;
-    for (const QString& f : folders)
-        urls.append(QString("https://art.gametdb.com/ds/coverS/%1/%2.png").arg(f, gameCode));
+    // Try high-res sets first; coverS is the last-resort small art.
+    static const QStringList types = {"coverHQ", "cover", "coverS"};
+
+    for (const QString& t : types)
+        for (const QString& f : folders)
+            urls.append(QString("https://art.gametdb.com/ds/%1/%2/%3.png").arg(t, f, gameCode));
     return urls;
 }
 
-void CoverFetcher::request(int index, const QString& gameCode)
+void CoverFetcher::request(int index, const QString& gameCode,
+                           const QString& romName, const QString& title)
 {
     if (gameCode.size() < 4)
         return;
@@ -80,7 +155,7 @@ void CoverFetcher::request(int index, const QString& gameCode)
         return;
     }
 
-    Pending p { index, gameCode, buildUrls(gameCode), 0 };
+    Pending p { index, gameCode, buildUrls(gameCode, romName, title), 0 };
     startNext(nullptr, p);
 }
 

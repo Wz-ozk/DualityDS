@@ -19,6 +19,7 @@
 #include "GameLibraryModel.h"
 
 #include <QPixmap>
+#include <algorithm>
 
 GameLibraryModel::GameLibraryModel(QObject* parent) : QAbstractListModel(parent)
 {
@@ -59,6 +60,20 @@ QVariant GameLibraryModel::data(const QModelIndex& index, int role) const
     case Qt::ToolTipRole:
         return QString("%1\n%2").arg(e.title, e.gameCode);
 
+    case CoverPixmapRole:
+        // Full-resolution cover for the carousel (DecorationRole hard-scales to
+        // 128px, too small for the large center cover). Prefer the fetched cover;
+        // fall back to the ROM banner icon upscaled with no smoothing.
+        if (!e.coverPath.isEmpty())
+        {
+            QPixmap cover(e.coverPath);
+            if (!cover.isNull())
+                return cover;
+        }
+        if (!e.bannerIcon.isNull())
+            return QPixmap::fromImage(e.bannerIcon);
+        return QVariant();
+
     case RomPathRole:
         return e.romPath;
 
@@ -84,12 +99,24 @@ void GameLibraryModel::addEntry(const GameEntry& entry)
     endInsertRows();
 }
 
+void GameLibraryModel::sortByTitle(bool ascending)
+{
+    if (entries.size() < 2) return;
+    beginResetModel();
+    std::sort(entries.begin(), entries.end(),
+              [ascending](const GameEntry& a, const GameEntry& b) {
+                  int c = a.title.compare(b.title, Qt::CaseInsensitive);
+                  return ascending ? (c < 0) : (c > 0);
+              });
+    endResetModel();
+}
+
 void GameLibraryModel::setCover(int row, const QString& coverPath)
 {
     if (row < 0 || row >= entries.size()) return;
     entries[row].coverPath = coverPath;
     QModelIndex idx = index(row);
-    emit dataChanged(idx, idx, {Qt::DecorationRole});
+    emit dataChanged(idx, idx, {Qt::DecorationRole, CoverPixmapRole});
 }
 
 QString GameLibraryModel::romPathAt(const QModelIndex& index) const

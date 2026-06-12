@@ -35,9 +35,12 @@ class CoverFetcher : public QObject
 public:
     explicit CoverFetcher(const QString& cacheDir, QObject* parent = nullptr);
 
-    // Request the cover for `gameCode`, reporting back against `index`. Emits
-    // coverReady immediately if already cached.
-    void request(int index, const QString& gameCode);
+    // Request the cover for `gameCode`, reporting back against `index`. `romName`
+    // (ROM file basename) and `title` (banner title) are used to look up higher-
+    // quality libretro boxart before falling back to GameTDB. Emits coverReady
+    // immediately if already cached.
+    void request(int index, const QString& gameCode,
+                 const QString& romName, const QString& title);
 
     // Abort all in-flight downloads (e.g. before a rescan invalidates indices).
     void cancelAll();
@@ -53,7 +56,8 @@ private:
 
     void startNext(QNetworkReply* prev, Pending p);
     QString cachePath(const QString& gameCode) const;
-    static QStringList buildUrls(const QString& gameCode);
+    static QStringList buildUrls(const QString& gameCode,
+                                 const QString& romName, const QString& title);
 
     QNetworkAccessManager* nam;
     QString cacheDir;

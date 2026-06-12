@@ -26,7 +26,7 @@ class GameLibraryModel : public QAbstractListModel
 {
     Q_OBJECT
 public:
-    enum Roles { RomPathRole = Qt::UserRole + 1, GameCodeRole };
+    enum Roles { RomPathRole = Qt::UserRole + 1, GameCodeRole, CoverPixmapRole };
 
     explicit GameLibraryModel(QObject* parent = nullptr);
 
@@ -35,6 +35,7 @@ public:
 
     void clear();
     void addEntry(const GameEntry& entry);
+    void sortByTitle(bool ascending); // reorders entries (covers travel with them)
     void setCover(int row, const QString& coverPath);
     QString romPathAt(const QModelIndex& index) const;
 

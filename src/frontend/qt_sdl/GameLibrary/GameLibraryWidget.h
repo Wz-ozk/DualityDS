@@ -22,17 +22,19 @@
 #include <QStringList>
 #include "GameEntry.h"
 
-class QListView;
 class QThread;
 class QLabel;
-class QLineEdit;
-class QSortFilterProxyModel;
+class QPushButton;
+class QFrame;
+class QTimer;
 class GameLibraryModel;
+class CoverCarousel;
 class RomScanner;
 class CoverFetcher;
 
-// The game-selection screen: a grid of cover art. Scans ROM folders on a worker
-// thread and boots a game when one is activated.
+// The game-selection screen: a USB Loader GX-style fan carousel of cover art over
+// a Wii-faceplate bottom bar. Scans ROM folders on a worker thread and boots a
+// game when one is activated.
 class GameLibraryWidget : public QWidget
 {
     Q_OBJECT
@@ -54,24 +56,31 @@ public slots:
 private slots:
     void onManageFolders();
     void onRescan();
-    void onItemActivated(const QModelIndex& index);
+    void onCoverActivated(int row);
+    void onSortToggled();
     void onEntryFound(const GameEntry& entry);
     void onScanFinished(int count);
 
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     void startScan();
-    void updateEmptyState(int count);
     void addFolders(const QStringList& newFolders); // dedupe, persist, rescan
+    QFrame* buildBottomBar();
+    void positionArrows();
+    void refreshStorageLine(int count);
 
-    QListView* view;
     GameLibraryModel* model;
-    QSortFilterProxyModel* proxy;
-    QLineEdit* searchBox;
-    QLabel* statusLabel;
+    CoverCarousel* carousel;
+    QPushButton* leftArrow;
+    QPushButton* rightArrow;
+    QLabel* clockLabel;
+    QLabel* storageLabel;
+    QTimer* clock;
+    bool sortAscending;
 
     RomScanner* scanner;
     QThread* scanThread;
