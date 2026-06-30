@@ -23,7 +23,7 @@ Grab the latest release from the [Releases page](https://github.com/Wz-ozk/Duali
 
 DualityDS is self-contained for Windows 64-bit; Qt6 and the runtime are bundled, so there's nothing to install.
 
-> You bring your own NDS game files. DualityDS does not include any games or copyrighted ROMs.
+> Please bring your own NDS game files. DualityDS does not include any games or copyrighted ROMs.
 
 ## Powered by melonDS
 
