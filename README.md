@@ -32,7 +32,7 @@ DualityDS runs on the melonDS core, one of the most accurate DS emulators availa
 - Local and online multiplayer (LAN and Netplay)
 - Cheat codes and save states
 - Screen layout and placement editing
-- Dual-screen rendering and full system configuration
+- Rendering and full system configuration
 
 ## What DualityDS adds
 
