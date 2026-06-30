@@ -54,8 +54,9 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
         const char* btn = EmuInstance::buttonNames[dskeyorder[i]];
         keypadKeyMap[i] = keycfg.GetInt(btn);
         keypadJoyMap[i] = joycfg.GetInt(btn);
+        // Joystick2 defaults to -1 when absent (Config.cpp), so load verbatim —
+        // a real button index of 0 must not be treated as "unset".
         keypadJoyMap2[i] = joy2cfg.GetInt(btn);
-        if (keypadJoyMap2[i] == 0) keypadJoyMap2[i] = -1;
     }
 
     int i = 0;

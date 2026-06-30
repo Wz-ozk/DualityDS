@@ -25,6 +25,7 @@
 #include <QParallelAnimationGroup>
 #include <QPropertyAnimation>
 #include <QPainter>
+#include <QPainterPath>
 #include <QKeyEvent>
 #include <QWheelEvent>
 #include <QtMath>
@@ -35,6 +36,7 @@ namespace
 constexpr qreal CARD_W       = 190.0;
 constexpr qreal CARD_H       = 250.0;
 constexpr qreal CORNER       = 10.0;  // placeholder rounding only
+constexpr qreal ART_CORNER   = 7.0;   // soft rounding on the cover artwork edges
 
 constexpr int   VISIBLE      = 4;     // covers shown each side of center
 constexpr qreal CENTER_SCALE = 2.0;   // center cover ~2x the base card
@@ -58,10 +60,12 @@ CoverItem::CoverItem(int row, QGraphicsItem* parent)
     // Rotate/scale about the card center, not the top-left corner.
     setTransformOriginPoint(CARD_W / 2.0, CARD_H / 2.0);
 
+    // Soft drop shadow lifts the cover off the backdrop — bumped a touch so the
+    // art reads as "popped up" / more 3D.
     auto* shadow = new QGraphicsDropShadowEffect(this);
-    shadow->setBlurRadius(24);
-    shadow->setOffset(0, 6);
-    shadow->setColor(QColor(0, 0, 0, 140));
+    shadow->setBlurRadius(32);
+    shadow->setOffset(0, 11);
+    shadow->setColor(QColor(0, 0, 0, 165));
     setGraphicsEffect(shadow);
 }
 
@@ -104,7 +108,14 @@ void CoverItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidge
         fit.scale(int(CARD_W), int(CARD_H), Qt::KeepAspectRatio);
         QRectF target((CARD_W - fit.width()) / 2.0, (CARD_H - fit.height()) / 2.0,
                       fit.width(), fit.height());
+
+        // Slightly rounded corners instead of hard 90° edges.
+        QPainterPath clip;
+        clip.addRoundedRect(target, ART_CORNER, ART_CORNER);
+        painter->save();
+        painter->setClipPath(clip);
         painter->drawPixmap(target, m_pix, m_pix.rect());
+        painter->restore();
     }
     else
     {

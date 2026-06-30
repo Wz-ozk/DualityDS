@@ -42,6 +42,16 @@
 #include <QCommandLineParser>
 #include <QDesktopServices>
 #include <QStackedWidget>
+#include <QDialog>
+#include <QFormLayout>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QSlider>
+#include <QComboBox>
+#include <QCheckBox>
+#include <QPushButton>
+#include <QDialogButtonBox>
+#include <QLabel>
 
 #include "main.h"
 #include "GameLibrary/GameLibraryWidget.h"
@@ -241,88 +251,29 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
     if (hasMenu)
     {
         QMenuBar * menubar = new QMenuBar();
+        // Glassy menubar to match the library's faceplate / disc buttons.
+        menubar->setStyleSheet(
+            "QMenuBar {"
+            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+            "    stop:0 rgba(255,255,255,0.97), stop:0.5 rgba(238,245,251,0.90),"
+            "    stop:1 rgba(214,227,240,0.88));"
+            "  border-bottom: 1px solid rgba(150,200,240,0.70);"
+            "}"
+            "QMenuBar::item { background: transparent; padding: 4px 10px; color: #2B3038; }"
+            "QMenuBar::item:selected { background: rgba(150,200,240,0.35); border-radius: 4px; }"
+            "QMenuBar::item:pressed  { background: rgba(120,180,235,0.55); border-radius: 4px; }");
         {
             QMenu * menu = menubar->addMenu("File");
 
-            actOpenROM = menu->addAction("Open ROM...");
-            connect(actOpenROM, &QAction::triggered, this, &MainWindow::onOpenFile);
-            actOpenROM->setShortcut(QKeySequence(QKeySequence::StandardKey::Open));
-
-            actGameLibrary = menu->addAction("Game Library");
-            connect(actGameLibrary, &QAction::triggered, this, &MainWindow::onShowGameLibrary);
-
-            QAction* actAddROMFolder = menu->addAction("Add ROM Folder...");
-            connect(actAddROMFolder, &QAction::triggered, this, [this]() {
-                showLibrary();
-                if (libraryWidget) libraryWidget->onAddFolder();
-            });
-
-            /*actOpenROMArchive = menu->addAction("Open ROM inside archive...");
-            connect(actOpenROMArchive, &QAction::triggered, this, &MainWindow::onOpenFileArchive);
-            actOpenROMArchive->setShortcut(QKeySequence(Qt::Key_O | Qt::CTRL | Qt::SHIFT));*/
-
-            recentMenu = menu->addMenu("Open recent");
+            // Open ROM / Game Library / Add ROM Folder / Open recent removed from the
+            // File menu — the Wii-style launcher is the primary game picker now.
+            // recentMenu kept alive (detached, not added) so loadRecentFilesMenu() and
+            // recent-file persistence keep working without a visible tab.
+            recentMenu = new QMenu("Open recent", this);
             loadRecentFilesMenu(true);
 
-            //actBootFirmware = menu->addAction("Launch DS menu");
-            actBootFirmware = menu->addAction("Boot firmware");
-            connect(actBootFirmware, &QAction::triggered, this, &MainWindow::onBootFirmware);
-
-            menu->addSeparator();
-
-            actCurrentCart = menu->addAction("DS slot: " + emuInstance->cartLabel());
-            actCurrentCart->setEnabled(false);
-
-            actInsertCart = menu->addAction("Insert cart...");
-            connect(actInsertCart, &QAction::triggered, this, &MainWindow::onInsertCart);
-
-            actEjectCart = menu->addAction("Eject cart");
-            connect(actEjectCart, &QAction::triggered, this, &MainWindow::onEjectCart);
-
-            menu->addSeparator();
-
-            actCurrentGBACart = menu->addAction("GBA slot: " + emuInstance->gbaCartLabel());
-            actCurrentGBACart->setEnabled(false);
-
-            actInsertGBACart = menu->addAction("Insert ROM cart...");
-            connect(actInsertGBACart, &QAction::triggered, this, &MainWindow::onInsertGBACart);
-
-            {
-                QMenu * submenu = menu->addMenu("Insert add-on cart");
-                QAction *act;
-
-                int addons[] = {
-                    GBAAddon_RAMExpansion,
-                    GBAAddon_RumblePak,
-                    GBAAddon_SolarSensorBoktai1,
-                    GBAAddon_SolarSensorBoktai2,
-                    GBAAddon_SolarSensorBoktai3,
-                    GBAAddon_MotionPakHomebrew,
-                    GBAAddon_MotionPakRetail,
-                    GBAAddon_GuitarGrip,
-                    -1
-                };
-
-                for (int i = 0; addons[i] != -1; i++)
-                {
-                    int addon = addons[i];
-                    act = submenu->addAction(emuInstance->gbaAddonName(addon));
-                    act->setData(QVariant(addon));
-                    connect(act, &QAction::triggered, this, &MainWindow::onInsertGBAAddon);
-                    actInsertGBAAddon.append(act);
-                }
-            }
-
-            actEjectGBACart = menu->addAction("Eject cart");
-            connect(actEjectGBACart, &QAction::triggered, this, &MainWindow::onEjectGBACart);
-
-            menu->addSeparator();
-
-            actImportSavefile = menu->addAction("Import savefile");
-            connect(actImportSavefile, &QAction::triggered, this, &MainWindow::onImportSavefile);
-
-            menu->addSeparator();
-
+            // File menu holds only save/load state now — cart/system/firmware actions
+            // relocated to the Advanced settings menu.
             {
                 QMenu * submenu = menu->addMenu("Save state");
 
@@ -359,19 +310,6 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
             actUndoStateLoad = menu->addAction("Undo state load");
             actUndoStateLoad->setShortcut(QKeySequence(Qt::Key_F12));
             connect(actUndoStateLoad, &QAction::triggered, this, &MainWindow::onUndoStateLoad);
-
-            menu->addSeparator();
-            actOpenConfig = menu->addAction("Open melonDS directory");
-            connect(actOpenConfig, &QAction::triggered, this, [&]()
-            {
-                QDesktopServices::openUrl(QUrl::fromLocalFile(emuDirectory));
-            });
-
-            menu->addSeparator();
-
-            actQuit = menu->addAction("Quit");
-            connect(actQuit, &QAction::triggered, this, &MainWindow::onQuit);
-            actQuit->setShortcut(QKeySequence(QKeySequence::StandardKey::Quit));
         }
         {
             QMenu * menu = menubar->addMenu("System");
@@ -591,7 +529,73 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
             connect(actShowOSD, &QAction::triggered, this, &MainWindow::onChangeShowOSD);
         }
         {
-            QMenu * menu = menubar->addMenu("Config");
+            // Input promoted to its own top-level menu, beside View / System.
+            QMenu * menu = menubar->addMenu("Input");
+
+            actInputConfig = menu->addAction("Input and hotkeys");
+            connect(actInputConfig, &QAction::triggered, this, &MainWindow::onOpenInputConfig);
+        }
+        {
+            QMenu * menu = menubar->addMenu("Advanced settings");
+
+            // Cart / system / firmware actions relocated here from the File menu.
+            actBootFirmware = menu->addAction("Boot firmware");
+            connect(actBootFirmware, &QAction::triggered, this, &MainWindow::onBootFirmware);
+
+            menu->addSeparator();
+
+            actCurrentCart = menu->addAction("DS slot: " + emuInstance->cartLabel());
+            actCurrentCart->setEnabled(false);
+
+            actInsertCart = menu->addAction("Insert cart...");
+            connect(actInsertCart, &QAction::triggered, this, &MainWindow::onInsertCart);
+
+            actEjectCart = menu->addAction("Eject cart");
+            connect(actEjectCart, &QAction::triggered, this, &MainWindow::onEjectCart);
+
+            menu->addSeparator();
+
+            actCurrentGBACart = menu->addAction("GBA slot: " + emuInstance->gbaCartLabel());
+            actCurrentGBACart->setEnabled(false);
+
+            actInsertGBACart = menu->addAction("Insert ROM cart...");
+            connect(actInsertGBACart, &QAction::triggered, this, &MainWindow::onInsertGBACart);
+
+            {
+                QMenu * submenu = menu->addMenu("Insert add-on cart");
+                QAction *act;
+
+                int addons[] = {
+                    GBAAddon_RAMExpansion,
+                    GBAAddon_RumblePak,
+                    GBAAddon_SolarSensorBoktai1,
+                    GBAAddon_SolarSensorBoktai2,
+                    GBAAddon_SolarSensorBoktai3,
+                    GBAAddon_MotionPakHomebrew,
+                    GBAAddon_MotionPakRetail,
+                    GBAAddon_GuitarGrip,
+                    -1
+                };
+
+                for (int i = 0; addons[i] != -1; i++)
+                {
+                    int addon = addons[i];
+                    act = submenu->addAction(emuInstance->gbaAddonName(addon));
+                    act->setData(QVariant(addon));
+                    connect(act, &QAction::triggered, this, &MainWindow::onInsertGBAAddon);
+                    actInsertGBAAddon.append(act);
+                }
+            }
+
+            actEjectGBACart = menu->addAction("Eject cart");
+            connect(actEjectGBACart, &QAction::triggered, this, &MainWindow::onEjectGBACart);
+
+            menu->addSeparator();
+
+            actImportSavefile = menu->addAction("Import savefile");
+            connect(actImportSavefile, &QAction::triggered, this, &MainWindow::onImportSavefile);
+
+            menu->addSeparator();
 
             actEmuSettings = menu->addAction("Emu settings");
             connect(actEmuSettings, &QAction::triggered, this, &MainWindow::onOpenEmuSettings);
@@ -601,9 +605,6 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
             connect(actPreferences, &QAction::triggered, this, &MainWindow::onOpenEmuSettings);
             actPreferences->setMenuRole(QAction::PreferencesRole);
 #endif
-
-            actInputConfig = menu->addAction("Input and hotkeys");
-            connect(actInputConfig, &QAction::triggered, this, &MainWindow::onOpenInputConfig);
 
             actVideoSettings = menu->addAction("Video settings");
             connect(actVideoSettings, &QAction::triggered, this, &MainWindow::onOpenVideoSettings);
@@ -638,8 +639,28 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
             actAudioSync = menu->addAction("Audio sync");
             actAudioSync->setCheckable(true);
             connect(actAudioSync, &QAction::triggered, this, &MainWindow::onChangeAudioSync);
+
+            menu->addSeparator();
+
+            actOpenConfig = menu->addAction("Open DualityDS directory");
+            connect(actOpenConfig, &QAction::triggered, this, [&]()
+            {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(emuDirectory));
+            });
+
+            menu->addSeparator();
+
+            actQuit = menu->addAction("Quit");
+            connect(actQuit, &QAction::triggered, this, &MainWindow::onQuit);
+            actQuit->setShortcut(QKeySequence(QKeySequence::StandardKey::Quit));
         }
         // Help/About menu removed
+
+        // Top-level "Back to Menu" entry (after Config) returns to the game selection screen.
+        {
+            QAction* actBackToMenu = menubar->addAction("Back to Menu");
+            connect(actBackToMenu, &QAction::triggered, this, &MainWindow::onBackToLibrary);
+        }
 
         setMenuBar(menubar);
 
@@ -900,6 +921,10 @@ void MainWindow::initGameLibrary()
             this, &MainWindow::onLibraryGameActivated);
     connect(libraryWidget, &GameLibraryWidget::foldersChanged,
             this, &MainWindow::onLibraryFoldersChanged);
+    connect(libraryWidget, &GameLibraryWidget::settingsRequested,
+            this, &MainWindow::onQuickSettings);
+    connect(libraryWidget, &GameLibraryWidget::pathSettingsRequested,
+            this, &MainWindow::onOpenPathSettings);
     centralStack->addWidget(libraryWidget);
 
     libraryWidget->setFolders(loadLibraryFolders());
@@ -945,6 +970,82 @@ void MainWindow::showEmulator()
 void MainWindow::onShowGameLibrary()
 {
     showLibrary();
+}
+
+void MainWindow::onBackToLibrary()
+{
+    if (QMessageBox::question(this, "Back to Menu",
+            "Please make sure you've saved your game progress before exiting.\n\n"
+            "Return to the game selection screen?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    if (emuThread->emuIsActive())
+        emuThread->emuStop(true);
+
+    showLibrary();
+}
+
+void MainWindow::onQuickSettings()
+{
+    // Everyday settings surfaced on the library's gear button. Each control writes
+    // straight to config (applied on next boot; screen layout/swap apply live), so
+    // the popup reuses the same keys/paths as the full settings dialogs.
+    auto& instcfg = emuInstance->getLocalConfig();
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Quick Settings");
+    dlg.setMinimumWidth(360);
+
+    auto* form = new QFormLayout();
+
+    auto* volSlider = new QSlider(Qt::Horizontal, &dlg);
+    volSlider->setRange(0, 256);
+    volSlider->setValue(instcfg.GetInt("Audio.Volume"));
+    connect(volSlider, &QSlider::valueChanged, &dlg,
+            [&](int v) { instcfg.SetInt("Audio.Volume", v); });
+    form->addRow("Audio volume", volSlider);
+
+    auto* curSlider = new QSlider(Qt::Horizontal, &dlg);
+    curSlider->setRange(1, 10);
+    curSlider->setValue(instcfg.GetInt("Controller.StickCursorSpeed"));
+    connect(curSlider, &QSlider::valueChanged, &dlg,
+            [&](int v) { instcfg.SetInt("Controller.StickCursorSpeed", v); });
+    form->addRow("Cursor speed", curSlider);
+
+    auto* layoutCombo = new QComboBox(&dlg);
+    for (int i = 0; i < screenLayout_MAX; i++)
+        layoutCombo->addItem(actScreenLayout[i]->text());
+    layoutCombo->setCurrentIndex(windowCfg.GetInt("ScreenLayout"));
+    connect(layoutCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), &dlg,
+            [&](int idx) {
+                windowCfg.SetInt("ScreenLayout", idx);
+                if (actScreenLayout[idx]) actScreenLayout[idx]->setChecked(true);
+                emit screenLayoutChange();
+            });
+    form->addRow("Screen layout", layoutCombo);
+
+    auto* swapChk = new QCheckBox("Swap top / bottom screens", &dlg);
+    swapChk->setChecked(windowCfg.GetBool("ScreenSwap"));
+    connect(swapChk, &QCheckBox::toggled, &dlg,
+            [&](bool on) { actScreenSwap->setChecked(on); onChangeScreenSwap(on); });
+
+    auto* layout = new QVBoxLayout(&dlg);
+    layout->addLayout(form);
+    layout->addWidget(swapChk);
+
+    auto* loadBtn = new QPushButton("Load state", &dlg);
+    loadBtn->setEnabled(emuInstance->emuIsActive()); // needs a running game
+    loadBtn->setToolTip(loadBtn->isEnabled() ? "" : "Start a game first");
+    connect(loadBtn, &QPushButton::clicked, &dlg, [&]() { dlg.accept(); onLoadState(); });
+    layout->addWidget(loadBtn);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    dlg.exec();
+    Config::Save();
 }
 
 void MainWindow::onLibraryGameActivated(const QString& romPath)

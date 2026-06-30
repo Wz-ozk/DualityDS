@@ -20,11 +20,13 @@
 
 #include <QWidget>
 #include <QStringList>
+#include <QSet>
 #include "GameEntry.h"
 
 class QThread;
 class QLabel;
 class QPushButton;
+class QToolButton;
 class QFrame;
 class QTimer;
 class GameLibraryModel;
@@ -49,9 +51,12 @@ public:
 signals:
     void gameActivated(const QString& romPath);
     void foldersChanged(const QStringList& folders); // user added/removed a folder
+    void settingsRequested();                        // gear button → quick settings
+    void pathSettingsRequested();                    // saves button → save/savestate path settings
 
 public slots:
     void onAddFolder();
+    void onAddGame(); // pick individual ROM file(s); adds their containing folder(s)
 
 private slots:
     void onManageFolders();
@@ -60,11 +65,14 @@ private slots:
     void onSortToggled();
     void onEntryFound(const GameEntry& entry);
     void onScanFinished(int count);
+    void onPollGamepad(); // drive the carousel with a controller while visible
 
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 
 private:
     void startScan();
@@ -75,8 +83,8 @@ private:
 
     GameLibraryModel* model;
     CoverCarousel* carousel;
-    QPushButton* leftArrow;
-    QPushButton* rightArrow;
+    QToolButton* leftArrow;
+    QToolButton* rightArrow;
     QLabel* clockLabel;
     QLabel* storageLabel;
     QTimer* clock;
@@ -87,4 +95,14 @@ private:
     CoverFetcher* coverFetcher;
 
     QStringList scanFolders;
+    QSet<QString> seenGames; // dedupe key per scan (gameCode, or path if code empty)
+
+    // Gamepad navigation of the carousel (active only while this screen is shown).
+    void openGamepad();
+    void closeGamepad();
+    QTimer* padTimer = nullptr;
+    struct _SDL_GameController* pad = nullptr;
+    int  padLastDir = 0;       // -1/0/+1 for held direction (auto-repeat)
+    int  padRepeatCountdown = 0;
+    bool padAHeld = false;     // edge-detect the boot button
 };

@@ -120,10 +120,10 @@ void EmuInstance::inputDeInit()
     SDL_UnlockMutex(joyMutex.get());
 }
 
-// Default mappings: keyboard=WASD+JKIUQE, joystick=Xbox layout
-// Order: A, B, Select, Start, Right, Left, Up, Down, R, L, X, Y
+// Default keyboard mapping: WASD + JKIUQE. Order: A, B, Select, Start, Right, Left,
+// Up, Down, R, L, X, Y. Joystick mappings have no built-in defaults — they load from
+// config (-1 = unmapped), so a real button index of 0 is preserved.
 static const int defaultKeyMap[12] = { 75, 74, 16777248, 16777220, 68, 65, 87, 83, 69, 81, 73, 85 };
-static const int defaultJoyMap[12] = { 0, 1, 6, 7, 258, 264, 257, 260, 5, 4, 2, 3 };
 
 void EmuInstance::inputLoadConfig()
 {
@@ -136,11 +136,12 @@ void EmuInstance::inputLoadConfig()
     for (int i = 0; i < 12; i++)
     {
         int kv = keycfg.GetInt(buttonNames[i]);
-        int jv = joycfg.GetInt(buttonNames[i]);
+        // Unmapped is encoded as -1 (Keyboard/Joystick/Joystick2 default to -1 when
+        // absent — see Config.cpp DefaultInts). Load verbatim so a real button index
+        // of 0 (SDL button 0) is preserved instead of being mistaken for "unset".
         keyMapping[i] = (kv == 0) ? defaultKeyMap[i] : kv;
-        joyMapping[i] = (jv == 0) ? defaultJoyMap[i] : jv;
+        joyMapping[i] = joycfg.GetInt(buttonNames[i]);
         joyMapping2[i] = joy2cfg.GetInt(buttonNames[i]);
-        if (joyMapping2[i] == 0) joyMapping2[i] = -1;
     }
 
     for (int i = 0; i < HK_MAX; i++)

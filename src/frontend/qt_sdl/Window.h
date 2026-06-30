@@ -110,6 +110,8 @@ private slots:
     void onClickRecentFile();
     void onClearRecentFiles();
     void onShowGameLibrary();
+    void onBackToLibrary(); // confirm + stop emu + return to selection screen
+    void onQuickSettings(); // gear button → quick everyday settings popup
     void onLibraryGameActivated(const QString& romPath);
     void onLibraryFoldersChanged(const QStringList& folders);
     void onBootFirmware();

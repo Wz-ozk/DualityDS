@@ -45,71 +45,174 @@
 #include <QUrl>
 #include <QStorageInfo>
 #include <QGraphicsDropShadowEffect>
+#include <QPainter>
+#include <QPainterPath>
+#include <QRadialGradient>
+#include <QLinearGradient>
+#include <QEnterEvent>
+#include <QPaintEvent>
+#include <QShowEvent>
+#include <QHideEvent>
+#include <QFont>
+
+#include <SDL2/SDL.h>
 
 namespace
 {
 constexpr int   BOTTOM_BAR_H = 120;
 constexpr int   ARROW_SIZE   = 56;
 constexpr int   ARROW_MARGIN = 16;
+
+// Gamepad carousel navigation.
+constexpr int   PAD_POLL_MS      = 30;
+constexpr int   PAD_INITIAL_TICKS = 11; // ~330ms before auto-repeat kicks in
+constexpr int   PAD_REPEAT_TICKS  = 5;  // ~150ms between repeats while held
+constexpr int   PAD_AXIS_DEADZONE = 16000; // of 32767
 constexpr qreal BYTES_PER_GB = 1000.0 * 1000.0 * 1000.0;
 
-// A large, chunky console-style round button: white/light-gray fill, blue glowing
-// ring, drop shadow.
-QToolButton* makeWiiButton(const QString& glyph, const QString& tip, bool enabled = true)
+// Custom-painted Wii-style disc: convex plastic look with a glass top-half sheen,
+// blue glow ring, inner white highlight, dark bottom shading, hover grow. The sheen
+// (a white ellipse clipped to the top half) needs a real paint pass — QSS can't do it.
+class WiiDiscButton : public QToolButton
 {
-    auto* b = new QToolButton();
-    b->setText(glyph);
-    b->setToolTip(tip);
-    b->setEnabled(enabled);
-    b->setCursor(enabled ? Qt::PointingHandCursor : Qt::ArrowCursor);
-    b->setFixedSize(64, 64);
-    b->setStyleSheet(
-        "QToolButton {"
-        "  border-radius: 32px; font-size: 26px; font-weight: bold; color: #2A6FA0;"
-        "  background: qradialgradient(cx:0.5, cy:0.40, radius:0.95,"
-        "    stop:0 #FFFFFF, stop:1 #DCE6EF);"
-        "  border: 3px solid #5BB4EE;"
-        "}"
-        "QToolButton:hover { border: 3px solid #7CC8F7;"
-        "  background: qradialgradient(cx:0.5, cy:0.40, radius:0.95,"
-        "    stop:0 #FFFFFF, stop:1 #EAF2F9); }"
-        "QToolButton:pressed { background: #D2E4F2; }"
-        "QToolButton:disabled { color: #9AA7B2; border: 3px solid #C2CCD4;"
-        "    background: #EDEFF2; }"
-        "QToolButton::menu-indicator { image: none; width: 0; height: 0; }");
-
-    if (enabled)
+public:
+    WiiDiscButton(const QString& glyph, const QString& tip,
+                  qreal baseDia = 64.0, bool enabled = true, QWidget* parent = nullptr)
+        : QToolButton(parent), m_glyph(glyph), m_baseDia(baseDia)
     {
-        auto* shadow = new QGraphicsDropShadowEffect(b);
-        shadow->setBlurRadius(16);
-        shadow->setOffset(0, 3);
-        shadow->setColor(QColor(0, 0, 0, 80));
-        b->setGraphicsEffect(shadow);
+        setToolTip(tip);
+        setEnabled(enabled);
+        setCursor(enabled ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        const int box = int(baseDia + GLOW_PAD); // room for glow + 1.08x grow
+        setFixedSize(box, box);
+
+        if (enabled)
+        {
+            auto* sh = new QGraphicsDropShadowEffect(this);
+            sh->setBlurRadius(12);
+            sh->setOffset(0, 3);
+            sh->setColor(QColor(0, 0, 0, 0x40)); // #40000000
+            setGraphicsEffect(sh);
+        }
     }
-    return b;
+
+    static qreal glowPad() { return GLOW_PAD; }
+
+protected:
+    void enterEvent(QEnterEvent* e) override { m_hover = true;  update(); QToolButton::enterEvent(e); }
+    void leaveEvent(QEvent* e)      override { m_hover = false; update(); QToolButton::leaveEvent(e); }
+
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+
+        const bool on   = isEnabled();
+        const bool hov  = on && m_hover;
+        const qreal dia = (hov ? m_baseDia * 1.08 : m_baseDia); // grow on hover
+        QRectF disc((width() - dia) / 2.0, (height() - dia) / 2.0, dia, dia);
+        const bool down = on && isDown();
+        const qreal ringW = qMax(2.0, dia * 0.047);
+
+        // Blue outer glow — a few fading strokes just outside the ring (enabled only).
+        if (on)
+        {
+            const int glowA = hov ? 150 : 90;
+            for (int i = 3; i >= 1; --i)
+            {
+                QColor c(0x7E, 0xC8, 0xE3, glowA / (i + 1));
+                QPen gp(c); gp.setWidthF(3.0 + i * 2.0);
+                p.setPen(gp); p.setBrush(Qt::NoBrush);
+                p.drawEllipse(disc.adjusted(-i, -i, i, i));
+            }
+        }
+
+        // Base fill: radial, lighter toward top-left, darker at the edge (light from TL).
+        QRadialGradient base(disc.center() - QPointF(disc.width() * 0.14, disc.height() * 0.18),
+                             disc.width() * 0.75);
+        if (on)
+        {
+            base.setColorAt(0.0, QColor(0xEC, 0xF1, 0xF6));
+            base.setColorAt(0.7, QColor(0xD0, 0xD8, 0xE0));
+            base.setColorAt(1.0, QColor(0xB2, 0xBE, 0xCB));
+        }
+        else
+        {
+            base.setColorAt(0.0, QColor(0xF1, 0xF3, 0xF5));
+            base.setColorAt(1.0, QColor(0xDD, 0xE2, 0xE6));
+        }
+        p.setPen(Qt::NoPen);
+        p.setBrush(base);
+        p.drawEllipse(disc);
+
+        QPainterPath discPath; discPath.addEllipse(disc);
+
+        // Bottom-half shading.
+        p.save();
+        p.setClipPath(discPath);
+        QLinearGradient bsh(disc.topLeft(), disc.bottomLeft());
+        bsh.setColorAt(0.5, QColor(0, 0, 0, 0));
+        bsh.setColorAt(1.0, QColor(0, 0, 0, on ? (down ? 70 : 45) : 20));
+        p.setBrush(bsh); p.setPen(Qt::NoPen);
+        p.drawRect(disc);
+        p.restore();
+
+        // Glass sheen: bright reflection catch leaning to the TOP-LEFT (light source
+        // from upper-left), clipped to the top half of the disc. ~70% more obvious.
+        if (on && !down)
+        {
+            p.save();
+            p.setClipPath(discPath);
+            QRectF topHalf(disc.left(), disc.top(), disc.width(), disc.height() * 0.55);
+            p.setClipRect(topHalf, Qt::IntersectClip);
+            // Reflection ellipse shifted left + up; radial catch centred near its
+            // top-left so the highlight reads as an angled light source.
+            QRectF sheen = disc.adjusted(disc.width() * 0.07, disc.height() * 0.05,
+                                         -disc.width() * 0.22, -disc.height() * 0.42);
+            QPointF focus(sheen.left() + sheen.width() * 0.32,
+                          sheen.top()  + sheen.height() * 0.28);
+            QRadialGradient sg(focus, sheen.width() * 0.85, focus);
+            const int peak = hov ? 255 : 250; // was ~150/205 → ~70% more visible
+            sg.setColorAt(0.0, QColor(255, 255, 255, peak));
+            sg.setColorAt(0.55, QColor(255, 255, 255, peak * 0.45));
+            sg.setColorAt(1.0, QColor(255, 255, 255, 0));
+            p.setBrush(sg); p.setPen(Qt::NoPen);
+            p.drawEllipse(sheen);
+            p.restore();
+        }
+
+        // Inner white highlight ring + outer ring.
+        p.setBrush(Qt::NoBrush);
+        if (on)
+        {
+            QPen white(QColor(255, 255, 255, 200)); white.setWidthF(1.0);
+            p.setPen(white); p.drawEllipse(disc.adjusted(2.5, 2.5, -2.5, -2.5));
+        }
+        QColor ringC = on ? (hov ? QColor(0x9A, 0xD8, 0xF2) : QColor(0x7E, 0xC8, 0xE3))
+                          : QColor(0xC2, 0xCC, 0xD4);
+        QPen ring(ringC); ring.setWidthF(ringW);
+        p.setPen(ring); p.drawEllipse(disc.adjusted(1.5, 1.5, -1.5, -1.5));
+
+        // Glyph.
+        p.setPen(on ? QColor(0x2A, 0x6F, 0xA0) : QColor(0x9A, 0xA7, 0xB2));
+        QFont f = font(); f.setPixelSize(int(dia * 0.40)); f.setBold(true);
+        p.setFont(f);
+        p.drawText(disc.translated(0, down ? 1.5 : 0), Qt::AlignCenter, m_glyph);
+    }
+
+private:
+    static constexpr qreal GLOW_PAD = 12.0; // widget padding around the disc
+    QString m_glyph;
+    qreal   m_baseDia;
+    bool    m_hover = false;
+};
+
+// Convenience: small glass disc for the faceplate icon row.
+WiiDiscButton* makeDiscButton(const QString& glyph, const QString& tip, bool enabled = true)
+{
+    return new WiiDiscButton(glyph, tip, 40.0, enabled);
 }
 
-// A circular faceplate icon button: white fill, blue icon tint, subtle border.
-QToolButton* makeIconButton(const QString& glyph, const QString& tip, bool enabled = true)
-{
-    auto* b = new QToolButton();
-    b->setText(glyph);
-    b->setToolTip(tip);
-    b->setEnabled(enabled);
-    b->setCursor(enabled ? Qt::PointingHandCursor : Qt::ArrowCursor);
-    b->setFixedSize(44, 44);
-    b->setStyleSheet(
-        "QToolButton {"
-        "  border-radius: 22px; font-size: 18px; color: #2E86C8;"
-        "  background: #FFFFFF;"
-        "  border: 1px solid #C6D2DC;"
-        "}"
-        "QToolButton:hover { background: #EAF4FB; border: 1px solid #5BB4EE; }"
-        "QToolButton:pressed { background: #D6E9F7; }"
-        "QToolButton:disabled { color: #B4C0CA; background: #F1F3F5;"
-        "    border: 1px solid #D8DEE3; }");
-    return b;
-}
 }
 
 GameLibraryWidget::GameLibraryWidget(QWidget* parent)
@@ -123,24 +226,15 @@ GameLibraryWidget::GameLibraryWidget(QWidget* parent)
     connect(carousel, &CoverCarousel::coverActivated, this, &GameLibraryWidget::onCoverActivated);
 
     // Edge navigation arrows, overlaid on the carousel (positioned in resizeEvent).
-    auto makeArrow = [this](const QString& glyph) {
-        auto* a = new QPushButton(glyph, this);
-        a->setCursor(Qt::PointingHandCursor);
-        a->setFixedSize(ARROW_SIZE, ARROW_SIZE);
-        a->setStyleSheet(
-            "QPushButton {"
-            "  border-radius: 28px; font-size: 22px; font-weight: bold; color: #2A6FA0;"
-            "  background: rgba(255,255,255,0.85);"
-            "  border: 1px solid rgba(0,0,0,0.10);"
-            "}"
-            "QPushButton:hover { background: #FFFFFF; color: #1E6FB0; }"
-            "QPushButton:pressed { background: #DCEBF7; }");
-        return a;
+    // Same glass-disc style as the bottom bar; box sized to ARROW_SIZE so the existing
+    // placement math stays valid.
+    auto makeArrow = [this](const QString& glyph, const QString& tip) {
+        return new WiiDiscButton(glyph, tip, ARROW_SIZE - WiiDiscButton::glowPad(), true, this);
     };
-    leftArrow = makeArrow(QString::fromUtf8("◀"));   // ◀
-    rightArrow = makeArrow(QString::fromUtf8("▶"));  // ▶
-    connect(leftArrow, &QPushButton::clicked, carousel, &CoverCarousel::prev);
-    connect(rightArrow, &QPushButton::clicked, carousel, &CoverCarousel::next);
+    leftArrow = makeArrow(QString::fromUtf8("◀"), tr("Previous"));   // ◀
+    rightArrow = makeArrow(QString::fromUtf8("▶"), tr("Next"));      // ▶
+    connect(leftArrow, &QToolButton::clicked, carousel, &CoverCarousel::prev);
+    connect(rightArrow, &QToolButton::clicked, carousel, &CoverCarousel::next);
 
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -179,16 +273,22 @@ QFrame* GameLibraryWidget::buildBottomBar()
 {
     auto* bar = new QFrame(this);
     bar->setFixedHeight(BOTTOM_BAR_H);
+    // Glassy faceplate: bright top sheen → translucent body, lit top edge.
     bar->setStyleSheet(
         "QFrame {"
         "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
-        "    stop:0 #FBFCFD, stop:1 #D8DEE5);"
-        "  border-top: 2px solid rgba(120,180,235,0.55);"
+        "    stop:0    rgba(255,255,255,0.99),"
+        "    stop:0.10 rgba(253,254,255,0.98),"
+        "    stop:0.50 rgba(244,248,252,0.96),"
+        "    stop:0.88 rgba(240,245,250,0.96),"
+        "    stop:1    rgba(245,249,253,0.97));"
+        "  border-top: 2px solid rgba(150,200,240,0.75);"
         "}"
         "QLabel { color: #3A4750; background: transparent; }");
 
-    // Left Wii button → settings placeholder (empty for now).
-    auto* gearBtn = makeWiiButton(QString::fromUtf8("⚙"), tr("Settings (coming soon)")); // ⚙
+    // Left Wii button → quick settings popup (glass disc style).
+    auto* gearBtn = new WiiDiscButton(QString::fromUtf8("⚙"), tr("Quick settings"));
+    connect(gearBtn, &QToolButton::clicked, this, [this]() { emit settingsRequested(); });
 
     clockLabel = new QLabel(bar);
     clockLabel->setStyleSheet(
@@ -202,23 +302,23 @@ QFrame* GameLibraryWidget::buildBottomBar()
     clock->start();
     clockLabel->setText(QTime::currentTime().toString("hh:mm:ss"));
 
-    // Faceplate icon row: search decorative (disabled); sort + the folder actions
-    // (add / manage / rescan) are wired up.
-    auto* searchBtn = makeIconButton(QString::fromUtf8("\U0001F50D"), tr("Search (coming soon)"), false);
-    auto* sortBtn   = makeIconButton(QString::fromUtf8("⇅"), tr("Sort A–Z / Z–A"), true);
-    auto* addBtn    = makeIconButton(QString::fromUtf8("＋"), tr("Add ROM Folder…"), true);
-    auto* manageBtn = makeIconButton(QString::fromUtf8("\U0001F4C1"), tr("Manage Folders…"), true);
-    auto* rescanBtn = makeIconButton(QString::fromUtf8("⟳"), tr("Rescan"), true);
+    // Faceplate icon row: sort + the folder actions (add / manage / rescan).
+    auto* sortBtn   = makeDiscButton(QString::fromUtf8("⇅"), tr("Sort A–Z / Z–A"), true);
+    auto* addBtn    = makeDiscButton(QString::fromUtf8("＋"), tr("Add Game…"), true);
+    auto* savesBtn  = makeDiscButton(QString::fromUtf8("\U0001F4BE"), tr("Saves…"), true); // 💾
+    auto* manageBtn = makeDiscButton(QString::fromUtf8("\U0001F4C1"), tr("Manage Folders…"), true);
+    auto* rescanBtn = makeDiscButton(QString::fromUtf8("⟳"), tr("Rescan"), true);
     connect(sortBtn,   &QToolButton::clicked, this, &GameLibraryWidget::onSortToggled);
-    connect(addBtn,    &QToolButton::clicked, this, &GameLibraryWidget::onAddFolder);
+    connect(addBtn,    &QToolButton::clicked, this, &GameLibraryWidget::onAddGame);
+    connect(savesBtn,  &QToolButton::clicked, this, [this]() { emit pathSettingsRequested(); });
     connect(manageBtn, &QToolButton::clicked, this, &GameLibraryWidget::onManageFolders);
     connect(rescanBtn, &QToolButton::clicked, this, &GameLibraryWidget::onRescan);
 
     auto* iconRow = new QHBoxLayout();
     iconRow->setSpacing(12);
-    iconRow->addWidget(searchBtn);
     iconRow->addWidget(sortBtn);
     iconRow->addWidget(addBtn);
+    iconRow->addWidget(savesBtn);   // right of Add Game
     iconRow->addWidget(manageBtn);
     iconRow->addWidget(rescanBtn);
 
@@ -233,7 +333,7 @@ QFrame* GameLibraryWidget::buildBottomBar()
     centerCol->addWidget(storageLabel, 0, Qt::AlignHCenter);
 
     // Right Wii button → boot the centered game.
-    auto* startBtn = makeWiiButton(QString::fromUtf8("▶"), tr("Start game")); // ▶
+    auto* startBtn = new WiiDiscButton(QString::fromUtf8("▶"), tr("Start game"), 64.0); // ▶
     connect(startBtn, &QToolButton::clicked, this, [this]() {
         if (carousel->count() > 0)
             onCoverActivated(carousel->currentIndex());
@@ -304,6 +404,24 @@ void GameLibraryWidget::onAddFolder()
     QString dir = QFileDialog::getExistingDirectory(this, tr("Select ROM Folder"));
     if (dir.isEmpty()) return;
     addFolders({dir});
+}
+
+void GameLibraryWidget::onAddGame()
+{
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this, tr("Add Game"), QString(),
+        tr("NDS ROMs (*.nds *.dsi *.srl *.ids *.nds.zst *.dsi.zst *.srl.zst);;All files (*.*)"));
+    if (files.isEmpty()) return;
+
+    // Library scans folders, so add each picked ROM's containing folder (deduped).
+    QStringList dirs;
+    for (const QString& f : files)
+    {
+        const QString dir = QFileInfo(f).absolutePath();
+        if (!dir.isEmpty() && !dirs.contains(dir))
+            dirs.append(dir);
+    }
+    addFolders(dirs);
 }
 
 void GameLibraryWidget::addFolders(const QStringList& newFolders)
@@ -386,6 +504,7 @@ void GameLibraryWidget::startScan()
 {
     if (coverFetcher) coverFetcher->cancelAll(); // stale indices after clear
     model->clear();
+    seenGames.clear();
     if (scanFolders.isEmpty())
     {
         refreshStorageLine(0);
@@ -399,6 +518,12 @@ void GameLibraryWidget::startScan()
 
 void GameLibraryWidget::onEntryFound(const GameEntry& entry)
 {
+    // Same game can sit in two scanned folders; show it once. Key by gameCode,
+    // falling back to the ROM path for homebrew with no/blank code.
+    const QString key = entry.gameCode.isEmpty() ? entry.romPath : entry.gameCode;
+    if (seenGames.contains(key)) return;
+    seenGames.insert(key);
+
     model->addEntry(entry);
     // Kick off the online cover fetch for this row (cached → instant). Pass the
     // ROM basename + title so the fetcher can try high-res libretro boxart first.
@@ -416,6 +541,101 @@ void GameLibraryWidget::onCoverActivated(int row)
     QString path = model->index(row).data(GameLibraryModel::RomPathRole).toString();
     if (!path.isEmpty())
         emit gameActivated(path);
+}
+
+// ----------------------------------------------------------- gamepad navigation
+
+void GameLibraryWidget::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    openGamepad();
+    setFocus(); // so keyboard nav works immediately too
+}
+
+void GameLibraryWidget::hideEvent(QHideEvent* event)
+{
+    QWidget::hideEvent(event);
+    closeGamepad(); // never poll the pad while a game is running
+}
+
+void GameLibraryWidget::openGamepad()
+{
+    if (!padTimer)
+    {
+        padTimer = new QTimer(this);
+        padTimer->setInterval(PAD_POLL_MS);
+        connect(padTimer, &QTimer::timeout, this, &GameLibraryWidget::onPollGamepad);
+    }
+    // SDL is already initialised by the app; make sure the gamecontroller subsystem is up.
+    if (!SDL_WasInit(SDL_INIT_GAMECONTROLLER))
+        SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+
+    padLastDir = 0;
+    padRepeatCountdown = 0;
+    padAHeld = false;
+    padTimer->start();
+}
+
+void GameLibraryWidget::closeGamepad()
+{
+    if (padTimer) padTimer->stop();
+    if (pad)
+    {
+        SDL_GameControllerClose(pad);
+        pad = nullptr;
+    }
+}
+
+void GameLibraryWidget::onPollGamepad()
+{
+    SDL_GameControllerUpdate();
+
+    // Lazily grab the first attached controller; reacquire if it was unplugged.
+    if (!pad || !SDL_GameControllerGetAttached(pad))
+    {
+        if (pad) { SDL_GameControllerClose(pad); pad = nullptr; }
+        const int n = SDL_NumJoysticks();
+        for (int i = 0; i < n; i++)
+        {
+            if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); break; }
+        }
+        if (!pad) return;
+    }
+
+    // Direction from D-pad or left-stick X (with deadzone).
+    int dir = 0;
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) dir = +1;
+    else if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) dir = -1;
+    else
+    {
+        const Sint16 ax = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX);
+        if (ax >  PAD_AXIS_DEADZONE) dir = +1;
+        else if (ax < -PAD_AXIS_DEADZONE) dir = -1;
+    }
+
+    if (dir == 0)
+    {
+        padLastDir = 0;
+        padRepeatCountdown = 0;
+    }
+    else if (dir != padLastDir)
+    {
+        // New press → act now, then wait the initial delay before repeating.
+        (dir > 0) ? carousel->next() : carousel->prev();
+        padLastDir = dir;
+        padRepeatCountdown = PAD_INITIAL_TICKS;
+    }
+    else if (--padRepeatCountdown <= 0)
+    {
+        (dir > 0) ? carousel->next() : carousel->prev();
+        padRepeatCountdown = PAD_REPEAT_TICKS;
+    }
+
+    // A button → boot the centred game (edge-triggered).
+    const bool aNow = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A);
+    if (aNow && !padAHeld && carousel->count() > 0)
+        onCoverActivated(carousel->currentIndex());
+    padAHeld = aNow;
 }
 
 void GameLibraryWidget::dragEnterEvent(QDragEnterEvent* event)
