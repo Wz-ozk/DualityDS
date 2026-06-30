@@ -6,6 +6,10 @@ Your games live on a Wii-style cover carousel instead of a file list — browse 
 
 No config files. No menus to learn. Plug in a controller and go.
 
+<img width="1034" height="757" alt="Screenshot 2026-06-29 230422" src="https://github.com/user-attachments/assets/3df97ecd-86e8-4e17-8901-f07c95f04f22" />
+
+*DualityDS library view — games not included; bring your own ROM files.*
+
 ---
 
 ## Download
@@ -38,6 +42,16 @@ A simplified, console-style interface layered on top, aimed at casual players:
 - **Full controller navigation** — browse, select, and play without the keyboard
 - **Right-stick velocity cursor** and **R2 touchscreen mapping** for the bottom screen
 - **Single-window dual-screen layout** and a clean console-style theme
+
+
+<img width="842" height="803" alt="Screenshot 2026-06-29 231332" src="https://github.com/user-attachments/assets/faa21d4f-c53e-434d-b939-bca0fd28e3dd" />
+
+*Classic stacked layout — both DS screens, just like the handheld.*
+
+<img width="2036" height="929" alt="Screenshot 2026-06-29 231520" src="https://github.com/user-attachments/assets/40c73e13-19ed-4217-9c54-7e3510d1dad1" />
+
+Dual-screen window mode — spread both screens however you like.
+
 
 ## Building from source
 
