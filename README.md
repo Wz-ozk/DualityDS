@@ -50,7 +50,7 @@ A simplified, console-style interface layered on top, aimed at casual players:
 
 <img width="2036" height="929" alt="Screenshot 2026-06-29 231520" src="https://github.com/user-attachments/assets/40c73e13-19ed-4217-9c54-7e3510d1dad1" />
 
-Dual-screen window mode — spread both screens however you like.
+*Dual-screen window mode — spread both screens however you like.*
 
 
 ## Building from source
