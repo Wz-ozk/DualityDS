@@ -10,12 +10,12 @@ No config files. No menus to learn. Plug in a controller and go.
 
 ## Download
 
-Grab the latest release from the [Releases page](https://github.com/wesleywtchang-jpg/DualityDS/releases).
+Grab the latest release from the [Releases page](https://github.com/Wz-ozk/DualityDS/releases).
 
 1. Download `DualityDS-v0.1.1-win64.zip`
 2. Unzip it anywhere
 3. Open the `DualityDS` folder and run `DualityDS.exe`
-4. On first launch the library is empty — click **Add Folder** to point it at your games
+4. On first launch the library is empty — click **Add Game…** and select your NDS game files
 
 DualityDS is self-contained for Windows 64-bit; Qt6 and the runtime are bundled, so there's nothing to install.
 
