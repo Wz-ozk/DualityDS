@@ -52,6 +52,9 @@
 #include <QPushButton>
 #include <QDialogButtonBox>
 #include <QLabel>
+#include <QWidgetAction>
+#include <QFrame>
+#include <QToolButton>
 
 #include "main.h"
 #include "GameLibrary/GameLibraryWidget.h"
@@ -262,54 +265,51 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
             "QMenuBar::item { background: transparent; padding: 4px 10px; color: #2B3038; }"
             "QMenuBar::item:selected { background: rgba(150,200,240,0.35); border-radius: 4px; }"
             "QMenuBar::item:pressed  { background: rgba(120,180,235,0.55); border-radius: 4px; }");
-        {
-            QMenu * menu = menubar->addMenu("File");
+        // Folded-away menus are re-homed below:
+        //  • View → a submenu inside Advanced settings
+        //  • Advanced settings → a top-right corner button (built detached)
+        QMenu* viewSubmenu = nullptr;
+        QMenu* advMenu = nullptr;
 
-            // Open ROM / Game Library / Add ROM Folder / Open recent removed from the
-            // File menu — the Wii-style launcher is the primary game picker now.
-            // recentMenu kept alive (detached, not added) so loadRecentFilesMenu() and
-            // recent-file persistence keep working without a visible tab.
+        {
+            // File menu removed — its Save/Load (File…) live in Quick Settings now.
+            // The per-slot state actions + Undo are kept alive and added to the
+            // window so their F-key shortcuts keep working without a visible menu.
             recentMenu = new QMenu("Open recent", this);
             loadRecentFilesMenu(true);
 
-            // File menu holds only save/load state now — cart/system/firmware actions
-            // relocated to the Advanced settings menu.
+            for (int i = 1; i < 9; i++)
             {
-                QMenu * submenu = menu->addMenu("Save state");
-
-                for (int i = 1; i < 9; i++)
-                {
-                    actSaveState[i] = submenu->addAction(QString("%1").arg(i));
-                    actSaveState[i]->setShortcut(QKeySequence(Qt::ShiftModifier | (Qt::Key_F1 + i - 1)));
-                    actSaveState[i]->setData(QVariant(i));
-                    connect(actSaveState[i], &QAction::triggered, this, &MainWindow::onSaveState);
-                }
-
-                actSaveState[0] = submenu->addAction("File...");
-                actSaveState[0]->setShortcut(QKeySequence(Qt::ShiftModifier | Qt::Key_F9));
-                actSaveState[0]->setData(QVariant(0));
-                connect(actSaveState[0], &QAction::triggered, this, &MainWindow::onSaveState);
+                actSaveState[i] = new QAction(QString("Save state %1").arg(i), this);
+                actSaveState[i]->setShortcut(QKeySequence(Qt::ShiftModifier | (Qt::Key_F1 + i - 1)));
+                actSaveState[i]->setData(QVariant(i));
+                connect(actSaveState[i], &QAction::triggered, this, &MainWindow::onSaveState);
+                addAction(actSaveState[i]);
             }
+            actSaveState[0] = new QAction("Save state to file...", this);
+            actSaveState[0]->setShortcut(QKeySequence(Qt::ShiftModifier | Qt::Key_F9));
+            actSaveState[0]->setData(QVariant(0));
+            connect(actSaveState[0], &QAction::triggered, this, &MainWindow::onSaveState);
+            addAction(actSaveState[0]);
+
+            for (int i = 1; i < 9; i++)
             {
-                QMenu * submenu = menu->addMenu("Load state");
-
-                for (int i = 1; i < 9; i++)
-                {
-                    actLoadState[i] = submenu->addAction(QString("%1").arg(i));
-                    actLoadState[i]->setShortcut(QKeySequence(Qt::Key_F1 + i - 1));
-                    actLoadState[i]->setData(QVariant(i));
-                    connect(actLoadState[i], &QAction::triggered, this, &MainWindow::onLoadState);
-                }
-
-                actLoadState[0] = submenu->addAction("File...");
-                actLoadState[0]->setShortcut(QKeySequence(Qt::Key_F9));
-                actLoadState[0]->setData(QVariant(0));
-                connect(actLoadState[0], &QAction::triggered, this, &MainWindow::onLoadState);
+                actLoadState[i] = new QAction(QString("Load state %1").arg(i), this);
+                actLoadState[i]->setShortcut(QKeySequence(Qt::Key_F1 + i - 1));
+                actLoadState[i]->setData(QVariant(i));
+                connect(actLoadState[i], &QAction::triggered, this, &MainWindow::onLoadState);
+                addAction(actLoadState[i]);
             }
+            actLoadState[0] = new QAction("Load state from file...", this);
+            actLoadState[0]->setShortcut(QKeySequence(Qt::Key_F9));
+            actLoadState[0]->setData(QVariant(0));
+            connect(actLoadState[0], &QAction::triggered, this, &MainWindow::onLoadState);
+            addAction(actLoadState[0]);
 
-            actUndoStateLoad = menu->addAction("Undo state load");
+            actUndoStateLoad = new QAction("Undo state load", this);
             actUndoStateLoad->setShortcut(QKeySequence(Qt::Key_F12));
             connect(actUndoStateLoad, &QAction::triggered, this, &MainWindow::onUndoStateLoad);
+            addAction(actUndoStateLoad);
         }
         {
             QMenu * menu = menubar->addMenu("System");
@@ -386,7 +386,10 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
             }
         }
         {
-            QMenu * menu = menubar->addMenu("View");
+            // View is folded into Advanced settings as a "View" submenu — built
+            // detached here, attached below.
+            QMenu * menu = new QMenu("View", this);
+            viewSubmenu = menu;
 
             {
                 QMenu * submenu = menu->addMenu("Screen size");
@@ -529,14 +532,28 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
             connect(actShowOSD, &QAction::triggered, this, &MainWindow::onChangeShowOSD);
         }
         {
-            // Input promoted to its own top-level menu, beside View / System.
-            QMenu * menu = menubar->addMenu("Input");
-
-            actInputConfig = menu->addAction("Input and hotkeys");
+            // Quick Settings mirrored onto the menu bar, beside View. Same controls
+            // as the gear-button popup; the dropdown is rebuilt on open so values
+            // stay fresh, and config is saved when it closes.
+            quickSettingsMenu = menubar->addMenu("Quick Settings");
+            connect(quickSettingsMenu, &QMenu::aboutToShow, this, &MainWindow::rebuildQuickSettingsMenu);
+            connect(quickSettingsMenu, &QMenu::aboutToHide, this, []() { Config::Save(); });
+        }
+        {
+            // Input folded into Quick Settings (button under "2nd Screen Mode").
+            // Action kept alive on the window so the member stays valid and its
+            // trigger path is reused by the Quick Settings button.
+            actInputConfig = new QAction("Input and hotkeys", this);
             connect(actInputConfig, &QAction::triggered, this, &MainWindow::onOpenInputConfig);
         }
         {
-            QMenu * menu = menubar->addMenu("Advanced settings");
+            // Advanced settings is built detached and placed in the top-right
+            // corner widget below. View is folded in as its first submenu.
+            QMenu * menu = new QMenu("Advanced settings", this);
+            advMenu = menu;
+
+            if (viewSubmenu) menu->addMenu(viewSubmenu);
+            menu->addSeparator();
 
             // Cart / system / firmware actions relocated here from the File menu.
             actBootFirmware = menu->addAction("Boot firmware");
@@ -656,10 +673,39 @@ MainWindow::MainWindow(int id, EmuInstance* inst, QWidget* parent) :
         }
         // Help/About menu removed
 
-        // Top-level "Back to Menu" entry (after Config) returns to the game selection screen.
+        // Top-right corner: "Back to Menu" (return to library) on the left, then
+        // "Advanced settings" (popup) on the far right. QMenuBar can't right-align
+        // its own menus, so these ride in a corner widget.
         {
-            QAction* actBackToMenu = menubar->addAction("Back to Menu");
-            connect(actBackToMenu, &QAction::triggered, this, &MainWindow::onBackToLibrary);
+            auto* corner = new QWidget(menubar);
+            auto* cl = new QHBoxLayout(corner);
+            cl->setContentsMargins(0, 0, 6, 0);
+            cl->setSpacing(2);
+
+            auto* backBtn = new QToolButton(corner);
+            backBtn->setText("Back to Menu");
+            backBtn->setAutoRaise(true);
+            backBtn->setCursor(Qt::PointingHandCursor);
+            connect(backBtn, &QToolButton::clicked, this, &MainWindow::onBackToLibrary);
+
+            auto* advBtn = new QToolButton(corner);
+            advBtn->setText("Advanced settings");
+            advBtn->setAutoRaise(true);
+            advBtn->setCursor(Qt::PointingHandCursor);
+            advBtn->setPopupMode(QToolButton::InstantPopup);
+            advBtn->setMenu(advMenu);
+
+            // Match the menubar item look (transparent, dark text, soft hover).
+            corner->setStyleSheet(
+                "QToolButton { background: transparent; color: #2B3038; padding: 4px 10px;"
+                "  border: none; border-radius: 4px; }"
+                "QToolButton:hover { background: rgba(150,200,240,0.35); }"
+                "QToolButton:pressed { background: rgba(120,180,235,0.55); }"
+                "QToolButton::menu-indicator { image: none; }");
+
+            cl->addWidget(backBtn);
+            cl->addWidget(advBtn);
+            menubar->setCornerWidget(corner, Qt::TopRightCorner);
         }
 
         setMenuBar(menubar);
@@ -986,59 +1032,102 @@ void MainWindow::onBackToLibrary()
     showLibrary();
 }
 
-void MainWindow::onQuickSettings()
+// Builds the everyday-settings panel surfaced on both the library gear button
+// (onQuickSettings) and the "Quick Settings" menu-bar dropdown. Each control
+// writes straight to config (applied on next boot; screen layout/swap/2nd-screen
+// apply live), reusing the same keys/paths as the full settings dialogs. A fresh
+// panel is built per call, so connections are scoped to the returned widget.
+QWidget* MainWindow::buildQuickSettingsPanel(QWidget* parent)
 {
-    // Everyday settings surfaced on the library's gear button. Each control writes
-    // straight to config (applied on next boot; screen layout/swap apply live), so
-    // the popup reuses the same keys/paths as the full settings dialogs.
     auto& instcfg = emuInstance->getLocalConfig();
 
-    QDialog dlg(this);
-    dlg.setWindowTitle("Quick Settings");
-    dlg.setMinimumWidth(360);
+    auto* panel = new QWidget(parent);
+    auto* layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(12, 10, 12, 10);
 
     auto* form = new QFormLayout();
 
-    auto* volSlider = new QSlider(Qt::Horizontal, &dlg);
+    auto* volSlider = new QSlider(Qt::Horizontal, panel);
     volSlider->setRange(0, 256);
     volSlider->setValue(instcfg.GetInt("Audio.Volume"));
-    connect(volSlider, &QSlider::valueChanged, &dlg,
-            [&](int v) { instcfg.SetInt("Audio.Volume", v); });
+    connect(volSlider, &QSlider::valueChanged, panel,
+            [this](int v) { emuInstance->getLocalConfig().SetInt("Audio.Volume", v); });
     form->addRow("Audio volume", volSlider);
 
-    auto* curSlider = new QSlider(Qt::Horizontal, &dlg);
+    auto* curSlider = new QSlider(Qt::Horizontal, panel);
     curSlider->setRange(1, 10);
     curSlider->setValue(instcfg.GetInt("Controller.StickCursorSpeed"));
-    connect(curSlider, &QSlider::valueChanged, &dlg,
-            [&](int v) { instcfg.SetInt("Controller.StickCursorSpeed", v); });
+    connect(curSlider, &QSlider::valueChanged, panel,
+            [this](int v) { emuInstance->getLocalConfig().SetInt("Controller.StickCursorSpeed", v); });
     form->addRow("Cursor speed", curSlider);
 
-    auto* layoutCombo = new QComboBox(&dlg);
+    auto* layoutCombo = new QComboBox(panel);
     for (int i = 0; i < screenLayout_MAX; i++)
         layoutCombo->addItem(actScreenLayout[i]->text());
     layoutCombo->setCurrentIndex(windowCfg.GetInt("ScreenLayout"));
-    connect(layoutCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), &dlg,
-            [&](int idx) {
+    connect(layoutCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), panel,
+            [this](int idx) {
                 windowCfg.SetInt("ScreenLayout", idx);
                 if (actScreenLayout[idx]) actScreenLayout[idx]->setChecked(true);
                 emit screenLayoutChange();
             });
     form->addRow("Screen layout", layoutCombo);
 
-    auto* swapChk = new QCheckBox("Swap top / bottom screens", &dlg);
-    swapChk->setChecked(windowCfg.GetBool("ScreenSwap"));
-    connect(swapChk, &QCheckBox::toggled, &dlg,
-            [&](bool on) { actScreenSwap->setChecked(on); onChangeScreenSwap(on); });
-
-    auto* layout = new QVBoxLayout(&dlg);
     layout->addLayout(form);
+
+    auto* swapChk = new QCheckBox("Swap top / bottom screens", panel);
+    swapChk->setChecked(windowCfg.GetBool("ScreenSwap"));
+    connect(swapChk, &QCheckBox::toggled, panel,
+            [this](bool on) { actScreenSwap->setChecked(on); onChangeScreenSwap(on); });
     layout->addWidget(swapChk);
 
-    auto* loadBtn = new QPushButton("Load state", &dlg);
-    loadBtn->setEnabled(emuInstance->emuIsActive()); // needs a running game
-    loadBtn->setToolTip(loadBtn->isEnabled() ? "" : "Start a game first");
-    connect(loadBtn, &QPushButton::clicked, &dlg, [&]() { dlg.accept(); onLoadState(); });
+    // 2nd Screen Mode, right below the screen-layout controls. Mirrors the
+    // View ▸ 2nd Screen Mode action so both surfaces stay in sync.
+    auto* secondChk = new QCheckBox("2nd Screen Mode", panel);
+    secondChk->setChecked(actSecondScreen->isChecked());
+    connect(secondChk, &QCheckBox::toggled, panel,
+            [this](bool on) { actSecondScreen->setChecked(on); onToggleSecondScreen(); });
+    layout->addWidget(secondChk);
+
+    // Input folded in from the former Input menu — sits right under 2nd Screen Mode.
+    auto* inputBtn = new QPushButton("Input and hotkeys…", panel);
+    connect(inputBtn, &QPushButton::clicked, panel, [this]() { onOpenInputConfig(); });
+    layout->addWidget(inputBtn);
+
+    auto* sep = new QFrame(panel);
+    sep->setFrameShape(QFrame::HLine);
+    sep->setFrameShadow(QFrame::Sunken);
+    layout->addWidget(sep);
+
+    // Save state above Load state. Both trigger the real slot-0 ("File…") menu
+    // actions, reusing the existing save/load logic and key-state handling.
+    const bool active = emuInstance->emuIsActive(); // needs a running game
+    const QString tip = active ? "" : "Start a game first";
+
+    auto* saveBtn = new QPushButton("Save state", panel);
+    saveBtn->setEnabled(active);
+    saveBtn->setToolTip(tip);
+    connect(saveBtn, &QPushButton::clicked, panel, [this]() { actSaveState[0]->trigger(); });
+    layout->addWidget(saveBtn);
+
+    auto* loadBtn = new QPushButton("Load state", panel);
+    loadBtn->setEnabled(active);
+    loadBtn->setToolTip(tip);
+    connect(loadBtn, &QPushButton::clicked, panel, [this]() { actLoadState[0]->trigger(); });
     layout->addWidget(loadBtn);
+
+    return panel;
+}
+
+void MainWindow::onQuickSettings()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle("Quick Settings");
+    dlg.setMinimumWidth(360);
+
+    auto* layout = new QVBoxLayout(&dlg);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(buildQuickSettingsPanel(&dlg));
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
@@ -1046,6 +1135,17 @@ void MainWindow::onQuickSettings()
 
     dlg.exec();
     Config::Save();
+}
+
+// Rebuild the menu-bar dropdown each time it opens so the embedded controls
+// reflect the current config (the panel reads values at build time).
+void MainWindow::rebuildQuickSettingsMenu()
+{
+    if (!quickSettingsMenu) return;
+    quickSettingsMenu->clear();
+    auto* wa = new QWidgetAction(quickSettingsMenu);
+    wa->setDefaultWidget(buildQuickSettingsPanel(quickSettingsMenu));
+    quickSettingsMenu->addAction(wa);
 }
 
 void MainWindow::onLibraryGameActivated(const QString& romPath)

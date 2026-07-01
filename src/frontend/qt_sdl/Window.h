@@ -212,6 +212,13 @@ private:
 
     void createScreenPanel();
 
+    // Quick Settings: one panel factory shared by the gear-button popup
+    // (onQuickSettings) and the "Quick Settings" menu-bar dropdown, so both
+    // surfaces always show the same controls.
+    QWidget* buildQuickSettingsPanel(QWidget* parent);
+    void rebuildQuickSettingsMenu();
+    QMenu* quickSettingsMenu = nullptr;
+
     // Game library (Wii-style ROM picker) — see GameLibrary/
     QStackedWidget* centralStack;
     GameLibraryWidget* libraryWidget;
