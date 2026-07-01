@@ -8,10 +8,10 @@
 - [x] Repo public, About sidebar updated
 
 ## In progress — v0.1.2 installer
-- [ ] Build DualityDS-Setup-v0.1.2.exe via dist/ Inno Setup script
-- [ ] Verify installer bundles the FULL v0.1.1 file set (117 DLLs, multimedia plugin, ffmpeg) — NOT the old lean build
-- [ ] Config: Start-menu shortcut, desktop icon, uninstaller; no .nds association
-- [ ] Clean-machine test: install → shortcut launches → audio plays → desktop icon → UNINSTALL fully removes
+- [x] Build DualityDS-Setup-v0.1.2.exe via dist/ Inno Setup script
+- [x] Verify installer bundles the FULL v0.1.1 file set (117 DLLs, multimedia plugin, ffmpeg) — NOT the old lean build
+- [x] Config: Start-menu shortcut, desktop icon, uninstaller; no .nds association
+- [x] Clean-machine test: install → shortcut launches → audio plays → desktop icon → UNINSTALL fully removes
 - [ ] Publish v0.1.2 release with BOTH installer + portable zip (new tag, fresh SHA256)
 
 ## Backlog / later
